@@ -361,6 +361,41 @@ class pymav():
         else:
             print("Waypoint reached!")
 
+    def speed_target(self, wp, yaw_rate=10):
+        """Permet l'envoi facile d'une commande de déplacement du drône aux coordonnées locales en système NED.
+
+        Args:
+            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
+            wp (list): liste des coordonnées en sytème de coordonnées local [N, E, D] (OUI ALTITUDE POSITIVE = NÉGATIF)
+            while_moving (fonction) : Chose à faire en attendant l'atteinte du wp
+            acceptance_radius (int, optional): Distance à laquelle le drone considère la cible atteinte. Defaults to 5.
+        """
+        
+        connection = self.connection
+        
+
+        connection.mav.set_position_target_local_ned_send(
+            0,  # Time in milliseconds
+            connection.target_system,
+            connection.target_component,
+            mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
+            0b100111000111,  # Speed mask
+            0,
+            0,
+            0,  # X (North), Y (East), Z (Down)
+            wp[0],
+            wp[1],
+            wp[2],  # No velocity
+            0,
+            0,
+            0,  # No acceleration
+            0,
+            yaw_rate,  # No yaw or yaw rate
+        )
+
+        # Wait for the waypoint to be reached
+        print(f"Asked for {wp} m/s")
+
 
     def RTL(self, while_moving = None):
         """Envoie une commande de RTL (return to launch). Attends que le drone soit atteri, une fois atteri, le drone est désarmé et la connection se ferme automatiquement, indiquant la fin de la mission.
