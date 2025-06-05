@@ -361,40 +361,39 @@ class pymav():
         else:
             print("Waypoint reached!")
 
-    def speed_target(self, wp, yaw_rate=10):
-        """Permet l'envoi facile d'une commande de déplacement du drône aux coordonnées locales en système NED.
+    def speed_target(self, wp:list, yaw_rate=0):
+        yaw_rate = yaw_rate * np.pi / 180  # Convert degrees to radians
+        """Permet l'envoi facile d'une commande de vitesse du drône dans le système de référence de celui-ci (En avant, à droite, en bas).
 
         Args:
             connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            wp (list): liste des coordonnées en sytème de coordonnées local [N, E, D] (OUI ALTITUDE POSITIVE = NÉGATIF)
-            while_moving (fonction) : Chose à faire en attendant l'atteinte du wp
-            acceptance_radius (int, optional): Distance à laquelle le drone considère la cible atteinte. Defaults to 5.
+            wp (list): liste des coordonnées en sytème de [Avant, Droite, Bas] (OUI ALTITUDE POSITIVE = NÉGATIF)
+            yaw_rate (float, optional): Vitesse de rotation du drone autour de son axe vertical. Defaults to 0. EN degrés par seconde.
         """
         
         connection = self.connection
         
-
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
-            0b100111000111,  # Speed mask
+            0b010111000111,  # Speed mask
             0,
             0,
-            0,  # X (North), Y (East), Z (Down)
+            0,   #X Front, Y Right, Z Down
             wp[0],
             wp[1],
             wp[2],  # No velocity
             0,
             0,
             0,  # No acceleration
-            0,
-            yaw_rate,  # No yaw or yaw rate
+            0,  # No yaw or
+            yaw_rate,   #yaw rate
         )
 
         # Wait for the waypoint to be reached
-        print(f"Asked for {wp} m/s")
+        print(f"Speed command of {wp} m/s")
 
 
     def RTL(self, while_moving = None):
