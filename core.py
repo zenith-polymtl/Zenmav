@@ -7,11 +7,14 @@ from geopy.distance import distance
 from geopy import Point
 
 class pymav():
-    def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762' ):
+    def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762' , gps = True):
         self = self
         self.last_message_req = None
 
         self.connect(ip)
+        if gps:
+            self.home = self.get_global_pos()
+            print(f"Home position: {self.home}")
 
         if gps_thresh is not None:
             gps_pos = self.get_global_pos()
@@ -51,6 +54,7 @@ class pymav():
                 wait_to_reach (bool, optional): Whether to wait for the drone to reach the target before proceeding.
             """
             connection = self.connection
+            print(wp)
 
             # Send a MAVLink command to set the target global position
             connection.mav.set_position_target_global_int_send(
@@ -311,6 +315,23 @@ class pymav():
         self.arm()
 
         self.takeoff(height)
+
+    def convert_to_global(self, local_delta : tuple, reference_point=None):
+        if reference_point is None:
+            reference_point = self.home
+        """Convertit les coordonnées locales NED en coordonnées GPS globales.
+
+        Args:
+            local_pos (list): Position locale en système NED [N, E, -Z].
+
+        Returns:
+            tuple: Position GPS globale (latitude, longitude, altitude).
+        """
+        x, y = local_delta
+        point_north = distance(meters=y).destination(reference_point, bearing=0)
+        point_final = distance(meters=x).destination(point_north, bearing=90)
+        return [point_final.latitude, point_final.longitude]
+
 
 
     def local_target(self, wp, acceptance_radius=5, while_moving = None, turn_into_wp = False):
