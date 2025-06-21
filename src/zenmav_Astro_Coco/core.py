@@ -39,7 +39,7 @@ class pymav():
         """
         # Create the self.connection
         # Establish connection to MAVLink
-        self.connection = mavutil.mavlink_connection(ip_address)
+        self.connection = mavutil.mavlink_connection(ip_address, baud = 921600)
         print('Waiting for heartbeat...')
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
