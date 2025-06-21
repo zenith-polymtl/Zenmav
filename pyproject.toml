@@ -2,12 +2,12 @@
 requires = ["setuptools >= 77.0.3", "pymavlink","geopy","numpy"]
 build-backend = "setuptools.build_meta"
 [project]
-name = "Zenmav_Astro_Coco"
+name = "zenmav"
 version = "0.0.1"
 authors = [
   { name="Colin Rousseau", email="colin.rousseau@polymtl.ca" },
 ]
-description = "Wrappers pymavlink"
+description = "Pymavlink wrappers for easy drone control developped by Zenith Polymtl"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [

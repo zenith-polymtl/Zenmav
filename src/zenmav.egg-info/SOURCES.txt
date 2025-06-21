@@ -1,0 +1,8 @@
+LICENSE
+pyproject.toml
+src/zenmav/__init__.py
+src/zenmav/core.py
+src/zenmav.egg-info/PKG-INFO
+src/zenmav.egg-info/SOURCES.txt
+src/zenmav.egg-info/dependency_links.txt
+src/zenmav.egg-info/top_level.txt
