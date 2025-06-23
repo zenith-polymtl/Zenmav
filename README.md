@@ -29,10 +29,10 @@ pip install Zenmav
 
 ## Usage
 
-To begin, import the `Zenmav` class from `Zenmav.core`:
+To begin, import the `Zenmav` class from `zenmav.core`:
 
 ```python
-from Zenmav.core import Zenmav
+from zenmav.core import Zenmav
 ```
 
 ### Quick Start Example
@@ -40,7 +40,7 @@ from Zenmav.core import Zenmav
 This example demonstrates connecting to a simulated drone, taking off, navigating to global and local waypoints, performing a scan, and returning to launch.
 
 ```python
-from Zenmav.core import Zenmav
+from zenmav.core import Zenmav
 import time
 
 # Initialize Zenmav.
