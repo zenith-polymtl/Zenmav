@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools >= 77.0.3", "pymavlink","geopy","numpy"]
+requires = ["setuptools >= 77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "zenmav"
-version = "0.0.1"
+version = "0.0.3"
 authors = [
   { name="Colin Rousseau", email="colin.rousseau@polymtl.ca" },
 ]
@@ -13,6 +13,11 @@ requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+]
+dependencies = [
+  "pymavlink",
+  "geopy",
+  "numpy",
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
