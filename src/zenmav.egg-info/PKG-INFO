@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: zenmav
-Version: 0.0.3
+Version: 0.0.4
 Summary: Pymavlink wrappers for easy drone control developped by Zenith Polymtl
 Author-email: Colin Rousseau <colin.rousseau@polymtl.ca>
 License-Expression: MIT
@@ -41,7 +41,7 @@ Developed by **Zenith Polytechnique Montréal**, Zenmav aims to empower develope
 Install Zenmav easily using pip:
 
 ```bash
-pip install Zenmav
+pip install zenmav
 ```
 
 ## Usage

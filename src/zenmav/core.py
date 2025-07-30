@@ -199,6 +199,35 @@ class Zenmav():
                     else:
                         print(f"Channel {channel} not available in the message.")
                         return None
+    def get_param(self, param_name : str):
+        """Fetches a specific parameter from the drone.
+
+        Args:
+            param_name (str): The name of the parameter to fetch.
+
+        Returns:
+            float: The value of the requested parameter.
+        """
+        self.connection.param_fetch_one(param_name)  
+        print(f"Requesting parameter: {param_name}")
+        # Wait for the parameter response  
+        msg = self.connection.recv_match(type='PARAM_VALUE', blocking=True, timeout=3)  
+        if msg and msg.param_id == param_name:  
+            param_value = msg.param_value
+            print(f"Parameter {param_name}: {param_value}")
+    def set_param(self, param_name : str, value : float):
+        """Sets a specific parameter on the drone.
+
+        Args:
+            param_name (str): The name of the parameter to set.
+            value (float): The value to set for the parameter.
+        """
+        print(f"Setting parameter {param_name} to {value}")
+        self.connection.param_set_send(param_name, value)  
+        # Wait for confirmation  
+        msg = self.connection.recv_match(type='PARAM_VALUE', blocking=True, timeout=3)  
+        if msg and msg.param_id == param_name:  
+            print(f"Parameter {param_name} set to: {msg.param_value}")
 
     def message_request(self, message_type, freq_hz=10):
         """Envoie une requète de message au drone, permet la réception d'un message spécifique, reçu à vitesse spécifique.
