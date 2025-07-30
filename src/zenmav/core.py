@@ -7,17 +7,15 @@ from geopy.distance import distance
 from geopy import Point
 
 class Zenmav():
-    def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762' , gps = True):
+    def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762'):
         self = self
         self.last_message_req = None
 
         self.connect(ip)
-        if gps:
-            self.home = self.get_global_pos()
-            print(f"Home position: {self.home}")
 
         if gps_thresh is not None:
             gps_pos = self.get_global_pos()
+            self.home = gps_pos
             ref_point = Point(gps_pos[0], gps_pos[1])
             point_north = distance(meters=gps_thresh).destination(ref_point, bearing=0)
             self.lat_thresh = abs(point_north.latitude - ref_point.latitude)

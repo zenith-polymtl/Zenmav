@@ -24,7 +24,7 @@ Developed by **Zenith Polytechnique Montréal**, Zenmav aims to empower develope
 Install Zenmav easily using pip:
 
 ```bash
-pip install Zenmav
+pip install zenmav
 ```
 
 ## Usage
