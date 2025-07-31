@@ -39,42 +39,122 @@ SITL users only need MAVProxy running on port 5762 (default shown below).
 
 ## Quick Start
 
+Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.  
+Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set. 
+Here are a few examples:
+
+------------------------------------------------------------------------------------------------------------------------
+Example 1 — Fly to a local waypoint and come back
+------------------------------------------------------------------------------------------------------------------------
+
 ```python
-from zenmav.core import Zenmav
+# example_local_target.py
+# Demonstrates local_target()    (requires zenmav 0.0.5)
+
 import time
+from zenmav.core import Zenmav
 
-# 1 – Create the object and connect (simulation).
-#     If you want reliable GPS accuracy checks,
-#     pass gps_thresh = desired_radius_in_meters.
-drone = Zenmav(ip='tcp:127.0.0.1:5762', gps_thresh=2.0)
+def main() -> None:
+    drone = Zenmav()                 # connect (default SITL TCP link)
+    drone.arm()
+    drone.set_mode("GUIDED")
+    drone.takeoff(altitude=15)       # climb to 15 m AGL
 
-try:
-    # 2 – Arm and take off
-    drone.connect_arm_takeoff(height=10)
+    # Fly 30 m North, 20 m East, keep same altitude (Down = 0)
+    print("Navigating to local waypoint …")
+    drone.local_target([30, 20, 0])
 
-    # 3 – Navigate to a global offset (+10 m N, +5 m E)
-    lat0, lon0, alt0 = drone.get_global_pos()
-    target_lat, target_lon = drone.convert_to_global(
-        local_delta=(5, 10),              # (East, North) in metres
-        reference_point=[lat0, lon0]
-    )
-    drone.global_target((target_lat, target_lon, alt0))
-    
-    # 4 – Move 5 m north in the local frame
-    N, E, D = drone.get_local_pos()
-    drone.local_target([N + 5, E, D], acceptance_radius=3)
+    # Hold position 5 s
+    time.sleep(5)
 
-    # 5 – Perform a spiral scan of 50 m radius
-    drone.spiral_scan(largeur_detection=5, altitude=10, rayon_scan=50)
-
-    # 6 – Return home and land
+    # Return-to-Launch (waits for landing & disarm)
     drone.RTL()
 
-finally:
-    # Always close the link when you are done
-    if getattr(drone, "connection", None):
-        drone.connection.close()
+if __name__ == "__main__":
+    main()
 ```
+
+------------------------------------------------------------------------------------------------------------------------
+Example 2 — Quick spiral scan of a 50 m radius area
+------------------------------------------------------------------------------------------------------------------------
+
+```python
+# example_spiral_scan.py
+# Demonstrates spiral_scan()     (requires zenmav 0.0.5)
+
+from zenmav.core import Zenmav
+
+def main() -> None:
+    drone = Zenmav(gps_thresh=2)     # enables waypoint-reach detection in metres
+    drone.arm()
+    drone.set_mode("GUIDED")
+    drone.takeoff(altitude=25)       # climb to 25 m AGL
+
+    print("Starting spiral scan …")
+    drone.spiral_scan(
+        largeur_detection=8,         # 8 m sensor footprint
+        altitude=25,                 # keep current altitude
+        rayon_scan=50,               # cover a 50 m radius
+        safety_margin=10             # add 10 m buffer
+    )
+
+    drone.RTL()
+
+if __name__ == "__main__":
+    main()
+```
+
+------------------------------------------------------------------------------------------------------------------------
+Example 3 — Log a GPS point to CSV and adjust cruise speed
+------------------------------------------------------------------------------------------------------------------------
+
+```python
+# example_csv_and_params.py
+# Shows get_global_pos(), insert_coordinates_to_csv(), set_param()   (zenmav 0.0.5)
+
+import csv
+from pathlib import Path
+from zenmav.core import Zenmav
+
+CSV_FILE = Path("waypoints.csv")
+
+def main() -> None:
+    drone = Zenmav(ip="/dev/ttyACM0") # example connection to pixhawk via USB
+    drone.arm()
+    drone.set_mode("GUIDED")
+    drone.takeoff(altitude=10)
+
+    # Grab current location and write it to CSV
+    lat, lon, rel_alt = drone.get_global_pos()
+    desc = "Take-off point"
+    drone.insert_coordinates_to_csv(CSV_FILE, (lat, lon), desc)
+    print(f"Saved home waypoint to {CSV_FILE}")
+
+    # Slow the aircraft to 3 m/s (ArduPilot expects cm/s)
+    drone.set_param("WPNAV_SPEED", 300)
+    print("WPNAV_SPEED set to 3 m/s")
+
+    # Fly forward at 3 m/s for ~3 s using body-frame velocity
+    for _ in range(30):
+        drone.speed_target([3, 0, 0])     # 3 m/s forward, level flight
+    print("Short cruise complete")
+
+    drone.RTL()
+
+    # Optional: show CSV content
+    print("\nCSV content:")
+    with CSV_FILE.open() as fp:
+        print(fp.read())
+
+if __name__ == "__main__":
+    main()
+```
+
+Each script is intentionally minimal:
+- The constructor opens the MAVLink link, so no explicit `connect()` call is needed.
+- `RTL()` blocks until touchdown, ensuring a clean shutdown.
+- All examples work unchanged on SITL; simply run them with  
+  `python example_name.py`.
 
 ---
 
