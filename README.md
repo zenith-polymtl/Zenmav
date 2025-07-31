@@ -1,17 +1,14 @@
 # Zenmav – Drone Control Library
 
-Zenmav is a high-level Python library that makes it easy to control drones
-running ArduPilot through the MAVLink protocol.  
-Developed at **Zenith Polytechnique Montréal**, it offers a clean API for
-connection, flight management, autonomous navigation and data acquisition in
-both simulation (SITL) and on real vehicles.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+Zenmav is a lightweight Python wrapper that lets you write **five-line flight
+scripts** for ArduPilot-controlled drones in either SITL or real hardware. 
+Developed by **Zenith Polytechnique Montréal**.
 
 ## Key Features
 
-- **Effortless Connection** – one-line TCP/UDP connection with heartbeat check
-- **Flexible Flight Modes** – switch between `GUIDED`, `AUTO`, `RTL`, `ALT_HOLD`,
-  `FLIP`, …
-- **Automated Pre-Flight** – arm and take off with a single call
+- **Simplified Pymavlink Commands with Feedback** – one-line TCP/UDP connection with heartbeat check and easy mode change
 - **Precise Navigation**
   - Global GPS waypoints with user-defined accuracy
   - Local NED waypoints relative to home
@@ -19,11 +16,14 @@ both simulation (SITL) and on real vehicles.
 - **Autonomous Area Scans**
   - Spiral pattern
   - Rectilinear/lawn-mower pattern
-- **Return-To-Launch** – safe RTL, auto-landing and disarm
 - **Live Telemetry** – local position, global GPS, heading, RC channels
-- **Parameter Management** – read/write any ArduPilot parameter
 - **CSV Logging Utilities**
-- **Advanced Maneuvers** – built-in automated flip demo
+
+## Safety Disclaimer
+
+**Always test new scripts in SITL first.**  
+When flying a real aircraft you are solely responsible for airworthiness, regulatory compliance and safe operation.  
+Operate in a clear area, keep visual line-of-sight and have a manual RC transmitter ready to take over. It is highly recommended **NOT** to use the arming command inside a script for a real drone unless thoroughly tested.
 
 ---
 
@@ -41,7 +41,6 @@ SITL users only need MAVProxy running on port 5762 (default shown below).
 
 Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.  
 Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set. 
-Here are a few examples:
 
 ------------------------------------------------------------------------------------------------------------------------
 Example 1 — Fly to a local waypoint and come back
@@ -150,97 +149,21 @@ if __name__ == "__main__":
     main()
 ```
 
-Each script is intentionally minimal:
-- The constructor opens the MAVLink link, so no explicit `connect()` call is needed.
-- `RTL()` blocks until touchdown, ensuring a clean shutdown.
-- All examples work unchanged on SITL; simply run them with  
-  `python example_name.py`.
-
 ---
 
-## Zenmav API Reference
-
-### Full Docs
+## Zenmav Docs
 
 Available in docs/zenmav.md
 
-### Constructor
+---
 
-```python
-class Zenmav:
-    def __init__(self, gps_thresh: float | None = None,
-                 ip: str = 'tcp:127.0.0.1:5762'):
-```
-
-Arguments  
-- `gps_thresh` – radius (metres) used to evaluate GPS-waypoint proximity.  
-  If provided the library computes internal `lat_thresh` and `lon_thresh`
-  from the current home position.  
-  When `gps_thresh` is not supplied, global-waypoint functions still work but
-  rely on the raw acceptance_radius you pass each time.
-- `ip` – MAVLink connection string:  
-  - SITL: `tcp:127.0.0.1:5762` (default)  
-  - Real drone (companion computer): `udp:<COMPANION_IP>:14551`
-
-> NOTE  If `gps_thresh` is supplied, `self.home` is
-> automatically set to the current GPS location.  
-> If you plan to call `convert_to_global` without passing
-> `reference_point`, make sure you started Zenmav with `gps_thresh`
-> so that `self.home` exists.
-
-### Connection helpers
-
-- `connect(ip_address='tcp:127.0.0.1:5762')`
-- `set_mode(mode: str)`
-- `arm()`
-- `takeoff(altitude=10, while_moving=None)`
-- `connect_arm_takeoff(ip, height)`
-
-### Navigation
-
-- `global_target(wp, acceptance_radius=8e-6, while_moving=None,
-  wait_to_reach=True)`
-- `local_target(wp, acceptance_radius=5, while_moving=None,
-  turn_into_wp=False)`
-- `speed_target(wp, yaw_rate=0)`
-
-### Position helpers
-
-- `get_global_pos(time_tag=False, heading=False)`
-- `get_local_pos(frequency_hz=60)`
-- `is_near_waypoint(actual, target, threshold=2., gps=False)`
-- `convert_to_global(local_delta, reference_point=None)`
-
-### Parameter & RC utilities
-
-- `get_param(param_name)`
-- `set_param(param_name, value)`
-- `get_rc_value(channel)`
-- `message_request(message_type, freq_hz=10)`
-
-### Autonomy & Scanning
-
-- `spiral_scan(largeur_detection=10, altitude=10,
-  rayon_scan=100, safety_margin=0, center=None)`
-- `rectilinear_scan(largeur_detection=10, altitude=10,
-  rayon_scan=100, safety_margin=0, center=None)`
-- `generate_scan_points(scan_width=2, radius_of_scan=13)`  
-  (static helper – returns `(x, y)` lists)
-
-### Mission termination
-
-- `RTL(while_moving=None)`
-
-### CSV helpers
-
-- `insert_coordinates_to_csv(file_path, coordinates, desc)`
-- `append_description_to_last_line(file_path, description)`  
-  (static helper)
-
-### Demo maneuver
-
-- `auto_flip()` – switches to `ALT_HOLD`, performs a flip, then
-  returns to `GUIDED` and flies back to the initial location.
+## Troubleshooting
+| Symptom                             | Fix                                    |
+|-------------------------------------|----------------------------------------|
+| `No heartbeat in 5 seconds`         | Check connection string / firewall     |
+| `PermissionError: ttyACM0`          | `sudo usermod -aG dialout $USER`       |
+| Waypoint never “reached”            | Provide `gps_thresh` at construction   |
+| Takeoff not working            | Make sure to be in Guided mode   |
 
 ---
 
