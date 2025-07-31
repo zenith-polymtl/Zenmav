@@ -14,13 +14,21 @@ class Zenmav():
         self.connect(ip)
 
         if gps_thresh is not None:
-            gps_pos = self.get_global_pos()
-            self.home = gps_pos
-            ref_point = Point(gps_pos[0], gps_pos[1])
+
+            nav_thresh = self.get_param('WPNAV_RADIUS')/100
+            print(f'nav_tresh : {nav_thresh}')
+            print(f'gps_thresh : {gps_thresh}')
+
+            if nav_thresh > gps_thresh:
+                while True:
+                    print(f"WARNING : Zenmav threshold {gps_thresh} is less than the AP nav threshold {nav_thresh}.")
+
+
+            self.home = self.get_global_pos()
+            ref_point = Point(self.home[0], self.home[1])
             point_north = distance(meters=gps_thresh).destination(ref_point, bearing=0)
             self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
 
-            # 1.7 meters East (Longitude axis)
             point_east = distance(meters=gps_thresh).destination(ref_point, bearing=90)
             self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
@@ -215,6 +223,8 @@ class Zenmav():
         if msg and msg.param_id == param_name:  
             param_value = msg.param_value
             print(f"Parameter {param_name}: {param_value}")
+            return param_value
+        
     def set_param(self, param_name : str, value : float):
         """Sets a specific parameter on the drone.
 
@@ -658,3 +668,34 @@ class Zenmav():
                 high = True
 
             return x,y
+
+    def auto_flip(self):
+        input("Press Enter...")
+        initial_pos = self.get_global_pos()
+        self.set_mode('ALT_HOLD')
+        flipped = False
+        start_time = time.time()
+        while True:
+             
+            if (time.time() - start_time > 0.5) and (not flipped):
+                self.set_mode('FLIP')
+                flipped = True
+            elif time.time() - start_time > 3:
+                print("Exiting loop after 3 seconds.")
+                break
+            else:
+                self.connection.mav.rc_channels_override_send(  
+                self.connection.target_system,    # target_system  
+                self.connection.target_component, # target_component  
+                65535,  # chan1_raw (UINT16_MAX = ignore)  
+                65535,  # chan2_raw (UINT16_MAX = ignore)   
+                1750,   # chan3_raw (throttle override to 1500μs)  
+                65535,  # chan4_raw (UINT16_MAX = ignore)  
+                65535,  # chan5_raw (UINT16_MAX = ignore)  
+                65535,  # chan6_raw (UINT16_MAX = ignore)  
+                65535,  # chan7_raw (UINT16_MAX = ignore)  
+                65535   # chan8_raw (UINT16_MAX = ignore)  
+            ) 
+
+        self.set_mode('GUIDED')
+        self.global_target(initial_pos)
