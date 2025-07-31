@@ -297,3 +297,13 @@ We welcome contributions from the community! If you have suggestions for improve
 ## License
 
 This project is licensed under the Apache 2.0 License. See the `LICENSE` file for full details.
+
+To push new version, update pyproject.toml
+
+```python3 -m build```
+
+Upload with 
+
+```twine upload dist/*```
+
+Enter API Token (Currently only accessible by maintainer Colin Rousseau)
