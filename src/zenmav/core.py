@@ -7,12 +7,12 @@ from geopy.distance import distance
 from geopy import Point
 
 class Zenmav():
-    def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , gps_thresh : float= None):
+    def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , baud = None, gps_thresh : float= None):
         '''Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol.'''
         self = self
         self.last_message_req = None
         self.gps_thresh = gps_thresh  # GPS threshold in meters
-        self.connect(ip)
+        self.connect(ip, baud)
         
 
         if self.gps_thresh is not None:
@@ -34,7 +34,7 @@ class Zenmav():
             point_east = distance(meters=self.gps_thresh).destination(ref_point, bearing=90)
             self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
-    def connect(self, ip_address : str ='tcp:127.0.0.1:5762'):
+    def connect(self, ip_address : str ='tcp:127.0.0.1:5762', baud : int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
 
         Args:
@@ -45,9 +45,13 @@ class Zenmav():
         Returns:
             None
         """
+
         # Create the self.connection
         # Establish connection to MAVLink
-        self.connection = mavutil.mavlink_connection(ip_address, baud = 921600)
+        if baud is not None:
+            self.connection = mavutil.mavlink_connection(ip_address, baud=baud)
+        else:
+            self.connection = mavutil.mavlink_connection(ip_address)
         print('Waiting for heartbeat...')
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
