@@ -7,37 +7,39 @@ from geopy.distance import distance
 from geopy import Point
 
 class Zenmav():
-    def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762'):
+    def __init__(self, ip = 'tcp:127.0.0.1:5762', gps_thresh= None):
+        '''Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol.'''
         self = self
         self.last_message_req = None
-
+        self.gps_thresh = gps_thresh  # GPS threshold in meters
         self.connect(ip)
+        
 
-        if gps_thresh is not None:
+        if self.gps_thresh is not None:
 
             nav_thresh = self.get_param('WPNAV_RADIUS')/100
-            print(f'nav_thresh : {nav_thresh}')
-            print(f'gps_thresh : {gps_thresh}')
+            print(f'Nav_thresh : {nav_thresh}')
+            print(f'GPS_thresh : {self.gps_thresh}')
 
-            if nav_thresh > gps_thresh:
+            if nav_thresh > self.gps_thresh:
                 while True:
-                    print(f"WARNING : Zenmav threshold {gps_thresh} is less than the AP nav threshold {nav_thresh}.")
+                    print(f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}.")
 
 
             self.home = self.get_global_pos()
             ref_point = Point(self.home[0], self.home[1])
-            point_north = distance(meters=gps_thresh).destination(ref_point, bearing=0)
+            point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
             self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
 
-            point_east = distance(meters=gps_thresh).destination(ref_point, bearing=90)
+            point_east = distance(meters=self.gps_thresh).destination(ref_point, bearing=90)
             self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
     def connect(self, ip_address='tcp:127.0.0.1:5762'):
-        """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication.
+        """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
 
         Args:
             ip_address (str, optional): IP address for connection.
-                Mavproxy simulation : 'tcp:127.0.0.1:5762' .
+                Sitl simulation : 'tcp:127.0.0.1:5762' .
                 Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
 
         Returns:
@@ -77,10 +79,12 @@ class Zenmav():
                 0, 0  # No yaw or yaw rate
             )
 
+            gps = True if self.gps_thresh is not None else False
+
             if wait_to_reach:
                 # Wait for the waypoint to be reached
                 print("Waiting for waypoint to be reached...")
-                while not self.is_near_waypoint(self.get_global_pos(), wp, threshold=acceptance_radius, gps=True):
+                while not self.is_near_waypoint(self.get_global_pos(), wp, threshold=acceptance_radius, gps=gps):
                     if while_moving is not None:
                         while_moving()
                     else:
@@ -337,14 +341,13 @@ class Zenmav():
                 pass
 
 
-    def connect_arm_takeoff(self, ip='tcp:127.0.0.1:5762', height=20):
+    def guided_arm_takeoff(self, height=20):
         """Allows quick connection, arming the drone and taking off
 
         Args:
             ip (str, optional): See connect documentation for more information
             height (int, optional): Drone takeoff height. Defaults to 20.
         """
-        self.connect(ip)
 
         # Set mode to GUIDED
         self.set_mode( "GUIDED")
@@ -353,18 +356,18 @@ class Zenmav():
 
         self.takeoff(height)
 
-    def convert_to_global(self, local_delta : tuple, reference_point=None):
+    def convert_to_global(self, local_pos : list, reference_point=None):
         if reference_point is None:
             reference_point = self.home
         """Converts local NED coordinates to global GPS coordinates.
 
         Args:
-            local_pos (list): Local position in NED system [N, E, -Z].
+            local_pos (list): Local position in NED system [N, E].
 
         Returns:
             tuple: Global GPS position (latitude, longitude, altitude).
         """
-        x, y = local_delta
+        x, y = local_pos
         point_north = distance(meters=y).destination(reference_point, bearing=0)
         final_point = distance(meters=x).destination(point_north, bearing=90)
         return [final_point.latitude, final_point.longitude]
