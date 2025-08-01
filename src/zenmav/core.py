@@ -52,13 +52,13 @@ class Zenmav():
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
     
-    def global_target(self, wp : list, acceptance_radius : float=8e-6, while_moving : function =None, wait_to_reach : bool=True):
+    def global_target(self, wp : list, acceptance_radius : float=8e-6, while_moving  =None, wait_to_reach : bool=True):
             """Sends a movement command to the drone for a specific global GPS coordinate.
 
             Args:
                 wp (tuple): Target waypoint as (latitude, longitude, altitude in meters).
                 acceptance_radius (float, optional): Distance at which the target is considered reached. Defaults to 5 meters. Deprecated, use gps_thresh in Zenmav init.
-                while_moving (function, optional): Function to execute while the drone is in transit.
+                while_moving (function, optional) to execute while the drone is in transit.
                 wait_to_reach (bool, optional): Whether to wait for the drone to reach the target before proceeding.
             """
             connection = self.connection
@@ -319,7 +319,7 @@ class Zenmav():
         print("Motors armed!")
 
 
-    def takeoff(self, altitude : float = 10., while_moving : function = None):
+    def takeoff(self, altitude : float = 10., while_moving  = None):
         """Makes the drone take off. Requires 'GUIDED' mode, and the drone to be armed.
 
         Args:
@@ -384,7 +384,7 @@ class Zenmav():
 
 
 
-    def local_target(self, wp : list, acceptance_radius: float = 5., while_moving : function= None, turn_into_wp : bool = False):
+    def local_target(self, wp : list, acceptance_radius: float = 5., while_moving = None, turn_into_wp : bool = False):
         """Allows easy sending of a drone movement command to local coordinates in NED system.
 
         Args:
@@ -467,7 +467,7 @@ class Zenmav():
         print(f"Speed command of {wp} m/s")
 
 
-    def RTL(self, while_moving : function = None):
+    def RTL(self, while_moving  = None):
         """Sends an RTL command (return to launch). Waits for the drone to land, once landed, the drone is disarmed and the connection closes automatically, indicating the end of the mission.
 
         Args:
