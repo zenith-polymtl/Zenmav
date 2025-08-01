@@ -16,7 +16,7 @@ class Zenmav():
         if gps_thresh is not None:
 
             nav_thresh = self.get_param('WPNAV_RADIUS')/100
-            print(f'nav_tresh : {nav_thresh}')
+            print(f'nav_thresh : {nav_thresh}')
             print(f'gps_thresh : {gps_thresh}')
 
             if nav_thresh > gps_thresh:
@@ -33,12 +33,12 @@ class Zenmav():
             self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
     def connect(self, ip_address='tcp:127.0.0.1:5762'):
-        """Permet une connection facile au drone, et l'atente de hearbeat pour s'assurer d'une communcation vivante.
+        """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication.
 
         Args:
-            ip_address (str, optional): Adresse ip de connection. 
-                Simulation_mavproxy : 'tcp:127.0.0.1:5762' .
-                Vrai_connection : 'udp:<ip_ubuntu>:14551' (S'assurer de bien avoir tranmsis le signal de l'antenne sur ce port et alloué la communication udp windows-ubuntu).
+            ip_address (str, optional): IP address for connection.
+                Mavproxy simulation : 'tcp:127.0.0.1:5762' .
+                Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
 
         Returns:
             None
@@ -89,15 +89,15 @@ class Zenmav():
                     print("Waypoint reached!")
 
     def is_near_waypoint(self, actual : list, target: list, threshold : float = 2., gps = False):
-        """Retoune True si la distance entre le drone et le target est < threshold. Else False.
+        """Returns True if the distance between the drone and the target is < threshold. Else False.
 
         Args:
-            actual (list): Position actuelle du drone (Coodonnées locales NED : [N, E, -Z])
-            target (list): Position visée à comparer (Coodonnées locales NED : [N, E, -Z])
-            threshold (float, optional): Distance à parti de laquelle retourner True. Defaults to 2.
+            actual (list): Current drone position (Local NED coordinates : [N, E, -Z])
+            target (list): Target position to compare (Local NED coordinates : [N, E, -Z])
+            threshold (float, optional): Distance at which to return True. Defaults to 2.
 
         Returns:
-            bool: Vrai si le donne est assez proche, False otherwise
+            bool: True if drone is close enough, False otherwise
         """
         
         if gps:
@@ -107,14 +107,14 @@ class Zenmav():
 
 
     def get_local_pos(self, frequency_hz=60):
-        """Permet d'avoir la position locale, et fais une requête pour avoir les données à la fréquence désirée.
+        """Allows to get the local position, and makes a request to get the data at the desired frequency.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            frequency_hz (int, optional): Fréquence de demandes des données. Defaults to 60.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            frequency_hz (int, optional): Frequency of data requests. Defaults to 60.
 
         Returns:
-            Position (list): Position en système de Coodonnées locales NED : [N, E, -Z]) 
+            Position (list): Position in local NED coordinate system : [N, E, -Z])
         """
 
 
@@ -240,12 +240,12 @@ class Zenmav():
             print(f"Parameter {param_name} set to: {msg.param_value}")
 
     def message_request(self, message_type, freq_hz=10):
-        """Envoie une requète de message au drone, permet la réception d'un message spécifique, reçu à vitesse spécifique.
+        """Sends a message request to the drone, allowing reception of a specific message, received at a specific rate.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            message_type (id function message): Voir les types de messages de mavlink pouvant être demandé en mode copter
-            freq_hz (int, optional): Fréquence voulue d'envoi des données. Defaults to 10 Hz.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            message_type (id function message): See mavlink message types that can be requested in copter mode
+            freq_hz (int, optional): Desired data transmission frequency. Defaults to 10 Hz.
         """
         if message_type != self.last_message_req:
             interval_us = int(1e6 / freq_hz)  # Interval in microseconds
@@ -268,20 +268,20 @@ class Zenmav():
 
 
     def set_mode(self, mode : str):
-        """Permet de choisir facilement le mode à partir de sont string
+        """Allows easy mode selection from its string
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            mode (str): Identification en lettres du mode
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            mode (str): Mode identification by letters
         """
         connection = self.connection
-        mode_id = connection.mode_mapping()[mode] #Conversion du mode en son id
+        mode_id = connection.mode_mapping()[mode] #Conversion of mode to its id
         connection.mav.set_mode_send(connection.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, mode_id)
         print(f"Setting mode to {mode}...")
 
 
     def arm(self):
-        """Arme le drone
+        """Arms the drone
         """
         connection = self.connection
         # Arm the vehicle
@@ -306,11 +306,11 @@ class Zenmav():
 
 
     def takeoff(self, altitude=10, while_moving = None):
-        """Fait décoller le drone. Nécessite le mode 'GUIDED', et que le drone soit armé. 
+        """Makes the drone take off. Requires 'GUIDED' mode, and the drone to be armed.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            altitude (int, optional): Alitude du drone en m de hauteur par rapport à l'origine. Defaults to 10.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            altitude (int, optional): Drone altitude in m of height relative to origin. Defaults to 10.
         """
         # Takeoff
         connection = self.connection
@@ -338,11 +338,11 @@ class Zenmav():
 
 
     def connect_arm_takeoff(self, ip='tcp:127.0.0.1:5762', height=20):
-        """Permet la connection rapide, l'arm du drone et le décollage
+        """Allows quick connection, arming the drone and taking off
 
         Args:
-            ip (str, optional): Voir documentation de connect pour plus d'infos
-            height (int, optional): Hauteur de décollage du drone. Defaults to 20.
+            ip (str, optional): See connect documentation for more information
+            height (int, optional): Drone takeoff height. Defaults to 20.
         """
         self.connect(ip)
 
@@ -356,37 +356,37 @@ class Zenmav():
     def convert_to_global(self, local_delta : tuple, reference_point=None):
         if reference_point is None:
             reference_point = self.home
-        """Convertit les coordonnées locales NED en coordonnées GPS globales.
+        """Converts local NED coordinates to global GPS coordinates.
 
         Args:
-            local_pos (list): Position locale en système NED [N, E, -Z].
+            local_pos (list): Local position in NED system [N, E, -Z].
 
         Returns:
-            tuple: Position GPS globale (latitude, longitude, altitude).
+            tuple: Global GPS position (latitude, longitude, altitude).
         """
         x, y = local_delta
         point_north = distance(meters=y).destination(reference_point, bearing=0)
-        point_final = distance(meters=x).destination(point_north, bearing=90)
-        return [point_final.latitude, point_final.longitude]
+        final_point = distance(meters=x).destination(point_north, bearing=90)
+        return [final_point.latitude, final_point.longitude]
 
 
 
     def local_target(self, wp, acceptance_radius=5, while_moving = None, turn_into_wp = False):
-        """Permet l'envoi facile d'une commande de déplacement du drône aux coordonnées locales en système NED.
+        """Allows easy sending of a drone movement command to local coordinates in NED system.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            wp (list): liste des coordonnées en sytème de coordonnées local [N, E, D] (OUI ALTITUDE POSITIVE = NÉGATIF)
-            while_moving (fonction) : Chose à faire en attendant l'atteinte du wp
-            acceptance_radius (int, optional): Distance à laquelle le drone considère la cible atteinte. Defaults to 5.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            wp (list): list of coordinates in local coordinate system [N, E, D] (YES POSITIVE ALTITUDE = NEGATIVE)
+            while_moving (function) : Thing to do while waiting for wp to be reached
+            acceptance_radius (int, optional): Distance at which the drone considers the target reached. Defaults to 5.
         """
         
         connection = self.connection
 
         yaw_angle = 0
         if turn_into_wp:
-            pos = self.get_local_pos
-            actual_x, actual_y = pos
+            actual_pos = self.get_local_pos()
+            actual_x, actual_y = actual_pos[0], actual_pos[1]
             yaw_angle = atan2(wp[0] - actual_x, wp[1] - actual_y)
         
 
@@ -421,12 +421,12 @@ class Zenmav():
 
     def speed_target(self, wp:list, yaw_rate=0):
         yaw_rate = yaw_rate * np.pi / 180  # Convert degrees to radians
-        """Permet l'envoi facile d'une commande de vitesse du drône dans le système de référence de celui-ci (En avant, à droite, en bas).
+        """Allows easy sending of a drone speed command in its reference system (Forward, right, down).
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            wp (list): liste des coordonnées en sytème de [Avant, Droite, Bas] (OUI ALTITUDE POSITIVE = NÉGATIF)
-            yaw_rate (float, optional): Vitesse de rotation du drone autour de son axe vertical. Defaults to 0. EN degrés par seconde.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            wp (list): list of coordinates in system of [Forward, Right, Down] (YES POSITIVE ALTITUDE = NEGATIVE)
+            yaw_rate (float, optional): Speed of drone rotation around its vertical axis. Defaults to 0. IN degrees per second.
         """
         
         connection = self.connection
@@ -455,10 +455,10 @@ class Zenmav():
 
 
     def RTL(self, while_moving = None):
-        """Envoie une commande de RTL (return to launch). Attends que le drone soit atteri, une fois atteri, le drone est désarmé et la connection se ferme automatiquement, indiquant la fin de la mission.
+        """Sends an RTL command (return to launch). Waits for the drone to land, once landed, the drone is disarmed and the connection closes automatically, indicating the end of the mission.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
+            connection (mavlink connection): Connection to the drone, often called master or connection
         """
         connection = self.connection
         print("Returning to launch...")
@@ -554,30 +554,30 @@ class Zenmav():
             writer.writerows(rows)
 
 
-    def spiral_scan(self, largeur_detection = 10, altitude = 10, rayon_scan = 100, safety_margin = 0, center = None):
-        """Permet de générer des points à suivre afin de faire le scan d'une zone circulaire, en effectuant une spirale. Permet ausis de mesurer le temps pris pour faire l'ensemble du scan.
+    def spiral_scan(self, detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None):
+        """Allows generating points to follow in order to scan a circular area, by performing a spiral. Also measures the time taken to complete the entire scan.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            largeur_detection (int, optional): Distance horizontale sur laquelle le drone peut détecter un émetter. Defaults to 10.
-            altitude (int, optional): Hauteur relative du home à laquelle effecteur le scan. Defaults to 10.
-            rayon_scan (int, optional): Rayon de la zone à scanner. Defaults to 100.
-            safety_margin (int, optional): Ajout de distance au rayon afin de compenser une erreur de positionnement initial. Defaults to 0.
-            center (local_pos, optional): Coordonnées locales du centre du scan. Si laissé à None, prendre la position initiale quand la fonction est appelée.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            detection_width (int, optional): Horizontal distance over which the drone can detect an emitter. Defaults to 10.
+            altitude (int, optional): Relative height of home at which to perform the scan. Defaults to 10.
+            scan_radius (int, optional): Radius of the area to scan. Defaults to 100.
+            safety_margin (int, optional): Additional distance to radius to compensate for initial positioning error. Defaults to 0.
+            center (local_pos, optional): Local coordinates of the scan center. If left at None, take the initial position when the function is called.
         """
         if center is None:
             pos = self.get_local_pos()
         else:
             pos = center
         
-        espacement = largeur_detection
-        nombre_de_tours = rayon_scan / espacement
+        spacing = detection_width
+        number_of_turns = scan_radius / spacing
 
-        rayon_scan += safety_margin
+        scan_radius += safety_margin
 
         # Spiral parameters
-        theta_spiral = np.linspace(0, 2 * np.pi*nombre_de_tours, 100)
-        b = espacement/(2*np.pi)
+        theta_spiral = np.linspace(0, 2 * np.pi*number_of_turns, 100)
+        b = spacing/(2*np.pi)
         r_spiral = b * theta_spiral
         x_spiral = r_spiral * np.cos(theta_spiral) + pos[0]
         y_spiral = r_spiral * np.sin(theta_spiral) + pos[1]
@@ -593,16 +593,16 @@ class Zenmav():
         print(f"Total time taken : {total_time:.2f}")
 
 
-    def rectilinear_scan(self, largeur_detection = 10, altitude = 10, rayon_scan = 100, safety_margin = 0, center = None):
-        """Permet de générer des points à suivre afin de faire le scan d'une zone circulaire, en effectuant une forme rectilinéaire. Permet ausis de mesurer le temps pris pour faire l'ensemble du scan.
+    def rectilinear_scan(self, detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None):
+        """Allows generating points to follow in order to scan a circular area, by performing a rectilinear pattern. Also measures the time taken to complete the entire scan.
 
         Args:
-            connection (mavlink connection): Connection au drone, souvent appelée master ou connection
-            largeur_detection (int, optional): Distance horizontale sur laquelle le drone peut détecter un émetter. Defaults to 10.
-            altitude (int, optional): Hauteur relative du home à laquelle effecteur le scan. Defaults to 10.
-            rayon_scan (int, optional): Rayon de la zone à scanner. Defaults to 100.
-            safety_margin (int, optional): Ajout de distance au rayon afin de compenser une erreur de positionnement initial. Defaults to 0.
-            center (local_pos, optional): Coordonnées locales du centre du scan. Si laissé à None, prendre la position initiale quand la fonction est appelée.
+            connection (mavlink connection): Connection to the drone, often called master or connection
+            detection_width (int, optional): Horizontal distance over which the drone can detect an emitter. Defaults to 10.
+            altitude (int, optional): Relative height of home at which to perform the scan. Defaults to 10.
+            scan_radius (int, optional): Radius of the area to scan. Defaults to 100.
+            safety_margin (int, optional): Additional distance to radius to compensate for initial positioning error. Defaults to 0.
+            center (local_pos, optional): Local coordinates of the scan center. If left at None, take the initial position when the function is called.
         """
         if center is None:
             pos = self.get_local_pos()
@@ -610,8 +610,9 @@ class Zenmav():
             pos = center
         
         
-        e = largeur_detection
-        radius = rayon_scan
+        
+        e = detection_width
+        radius = scan_radius
         safety_margin = 0
         radius += safety_margin
         x = []
@@ -633,7 +634,6 @@ class Zenmav():
                 x.append(-radius + w)
                 y.append(h)
                 high = True
-
         start_time = time.time()
 
         for i in range(len(x)):
@@ -667,7 +667,7 @@ class Zenmav():
                 y.append(h)
                 high = True
 
-            return x,y
+        return x,y
 
     def auto_flip(self):
         input("Press Enter...")

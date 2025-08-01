@@ -35,12 +35,6 @@ position and is reused by `convert_to_global`.
 
 ---
 
-### `connect(self, ip_address = 'tcp:127.0.0.1:5762')`
-
-Opens the MAVLink link, waits for the first heartbeat and prints confirmation.
-
----
-
 ## 2  Flight-mode helpers
 
 | Function | Purpose |
@@ -131,15 +125,15 @@ Utility that evaluates proximity.
 
 ## 6  Autonomous scan utilities
 
-### `spiral_scan(largeur_detection = 10, altitude = 10, rayon_scan = 100, safety_margin = 0, center = None)`
+### `spiral_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
 
 Performs a circular spiral scan.
 
 | Argument | Unit | Meaning |
 |----------|------|---------|
-| `largeur_detection` | m | Sensor footprint used as pass spacing. |
+| `detection_width` | m | Sensor footprint used as pass spacing. |
 | `altitude` | m | Relative altitude for the scan (positive up → send `-altitude` as NED Z). |
-| `rayon_scan` | m | Nominal radius to cover. |
+| `scan_radius` | m | Nominal radius to cover. |
 | `safety_margin` | m | Extra radius added once at start. |
 | `center` | NED list or `None` | Scan centre; defaults to current local pos. |
 
@@ -147,7 +141,7 @@ Traverses waypoints sequentially; prints total duration.
 
 ---
 
-### `rectilinear_scan(largeur_detection = 10, altitude = 10, rayon_scan = 100, safety_margin = 0, center = None)`
+### `rectilinear_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
 
 Same arguments as above, but generates a lawn-mower pattern.
 
