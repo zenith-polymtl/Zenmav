@@ -9,6 +9,7 @@ Example usage:
 """
 
 from zenmav.core import Zenmav
+
 import time
 
 def main():
@@ -49,11 +50,11 @@ def main():
         drone.gimbal_set_angle(pitch=45, yaw=90)
         time.sleep(2)
         
-        # Point at specific location (example coordinates)
-        print("Pointing gimbal at specific location...")
-        # Note: Replace with actual coordinates for your location
-        drone.gimbal_point_at_location(lat=37.7749, lon=-122.4194, alt=100)
-        time.sleep(2)
+        # # Point at specific location (example coordinates)
+        # print("Pointing gimbal at specific location...")
+        # # Note: Replace with actual coordinates for your location
+        # drone.gimbal_point_at_location(lat=37.7749, lon=-122.4194, alt=100)
+        # time.sleep(2)
         
         # Retract gimbal
         print("Retracting gimbal...")

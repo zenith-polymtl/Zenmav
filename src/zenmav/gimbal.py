@@ -195,7 +195,7 @@ class GimbalController:
         Returns:
             bool: True if command was sent successfully
         """
-        return self.set_angle(pitch=90, yaw=0)
+        return self.set_angle(pitch=-90, yaw=0)
     
     def point_forward(self):
         """Point gimbal forward (0-degree pitch, 0-degree yaw)
