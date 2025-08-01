@@ -14,8 +14,9 @@ parameters, return values and usage notes.
 4. Telemetry & helpers  
 5. Parameter & RC utilities  
 6. Autonomous scan utilities  
-7. CSV helpers  
+7. CSV helpers
 8. Demo manoeuvre (auto-flip)
+9. Gimbal control utilities
 
 ---
 
@@ -175,6 +176,72 @@ Returns two lists with local coordinates (metres).
 4. After 3 s switches back to `GUIDED` and returns to the stored position.
 
 > ⚠️ **Caution** – Only test in a safe environment with plenty of altitude.
+
+---
+
+## Gimbal control utilities
+
+### `gimbal_set_angle(self, pitch=None, yaw=None, roll=None)`
+
+Set gimbal angles using MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW.
+
+- `pitch`: Pitch angle in degrees (positive is up)
+- `yaw`: Yaw angle in degrees (positive is clockwise)
+- `roll`: Roll angle in degrees
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_point_down(self)`
+
+Point gimbal straight down (90-degree pitch).
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_point_forward(self)`
+
+Point gimbal forward (0-degree pitch, 0-degree yaw).
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_retract(self)`
+
+Retract the gimbal using MAV_CMD_DO_MOUNT_CONTROL.
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_neutral(self)`
+
+Set gimbal to neutral position using MAV_CMD_DO_MOUNT_CONTROL.
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_mavlink_targeting(self)`
+
+Switch to MAVLink targeting mode using MAV_CMD_DO_MOUNT_CONTROL.
+
+Returns `True` if command was sent successfully.
+
+---
+
+### `gimbal_point_at_location(self, lat, lon, alt)`
+
+Point gimbal at specific GPS location using MAV_CMD_DO_SET_ROI_LOCATION.
+
+- `lat`: Latitude in degrees
+- `lon`: Longitude in degrees
+- `alt`: Altitude in meters
+
+Returns `True` if command was sent successfully.
 
 ---
 

@@ -17,6 +17,7 @@ Developed by **Zenith Polytechnique Montréal**.
   - Spiral pattern
   - Rectilinear/lawn-mower pattern
 - **Live Telemetry** – local position, global GPS, heading, RC channels
+- **Gimbal Control** – precise camera gimbal control with ROI targeting
 - **CSV Logging Utilities**
 
 ## Safety Disclaimer
@@ -39,8 +40,8 @@ SITL users only need MAVProxy running on port 5762 (default shown below).
 
 ## Quick Start
 
-Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.  
-Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set. 
+Below are four concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.
+Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set.
 
 ------------------------------------------------------------------------------------------------------------------------
 Example 1 — Fly to a local waypoint and come back
@@ -149,11 +150,58 @@ if __name__ == "__main__":
     main()
 ```
 
+------------------------------------------------------------------------------------------------------------------------
+Example 4 — Gimbal control for camera positioning
+------------------------------------------------------------------------------------------------------------------------
+
+```python
+# example_gimbal_control.py
+# Demonstrates gimbal control functionality
+
+from zenmav.core import Zenmav
+import time
+
+def main() -> None:
+    drone = Zenmav()                 # connect (default SITL TCP link)
+    drone.arm()
+    drone.set_mode("GUIDED")
+    drone.takeoff(altitude=20)       # climb to 20 m AGL
+
+    # Point gimbal down for initial inspection
+    print("Pointing gimbal down...")
+    drone.gimbal_point_down()
+    time.sleep(3)
+
+    # Set custom gimbal angles
+    print("Setting custom gimbal angles...")
+    drone.gimbal_set_angle(pitch=45, yaw=90)
+    time.sleep(3)
+
+    # Point at specific location
+    print("Pointing gimbal at location...")
+    drone.gimbal_point_at_location(lat=37.7749, lon=-122.4194, alt=100)
+    time.sleep(3)
+
+    # Retract gimbal
+    print("Retracting gimbal...")
+    drone.gimbal_retract()
+
+    # Return-to-Launch (waits for landing & disarm)
+    drone.RTL()
+
+if __name__ == "__main__":
+    main()
+```
+
 ---
 
 ## Zenmav Docs
 
 Available in docs/zenmav.md
+
+## Gimbal Control Docs
+
+Gimbal control documentation is available in docs/gimbal.md
 
 ---
 

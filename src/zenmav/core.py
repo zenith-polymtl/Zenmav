@@ -6,12 +6,18 @@ from math import atan2
 from geopy.distance import distance
 from geopy import Point
 
+# Import gimbal controller
+from .gimbal import GimbalController
+
 class Zenmav():
     def __init__(self, gps_thresh= None, ip = 'tcp:127.0.0.1:5762'):
         self = self
         self.last_message_req = None
 
         self.connect(ip)
+
+        # Initialize gimbal controller
+        self.gimbal = GimbalController(self)
 
         if gps_thresh is not None:
 
@@ -699,3 +705,70 @@ class Zenmav():
 
         self.set_mode('GUIDED')
         self.global_target(initial_pos)
+
+    # Convenience methods for gimbal control
+    def gimbal_set_angle(self, pitch=None, yaw=None, roll=None):
+        """Convenience method for gimbal angle control
+        
+        Args:
+            pitch: Pitch angle in degrees
+            yaw: Yaw angle in degrees
+            roll: Roll angle in degrees
+            
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.set_angle(pitch, yaw, roll)
+
+    def gimbal_point_down(self):
+        """Convenience method to point gimbal down
+        
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.point_down()
+
+    def gimbal_point_forward(self):
+        """Convenience method to point gimbal forward
+        
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.point_forward()
+
+    def gimbal_retract(self):
+        """Convenience method to retract gimbal
+        
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.retract()
+
+    def gimbal_neutral(self):
+        """Convenience method to set gimbal to neutral position
+        
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.neutral()
+
+    def gimbal_mavlink_targeting(self):
+        """Convenience method to switch to MAVLink targeting mode
+        
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.mavlink_targeting()
+
+    def gimbal_point_at_location(self, lat, lon, alt):
+        """Convenience method to point gimbal at specific GPS location
+        
+        Args:
+            lat: Latitude in degrees
+            lon: Longitude in degrees
+            alt: Altitude in meters
+            
+        Returns:
+            bool: True if command was sent successfully
+        """
+        return self.gimbal.point_at_location(lat, lon, alt)
