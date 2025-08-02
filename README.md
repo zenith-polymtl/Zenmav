@@ -221,3 +221,15 @@ Issues and pull requests are welcome!
 Please fork the repository, create a feature branch and open an MR when ready.
 
 ---
+
+## Maintainer
+
+To push new version, update pyproject.toml
+
+```python3 -m build```
+
+Upload with 
+
+```twine upload dist/*```
+
+Enter API Token (Currently only accessible by maintainer Colin Rousseau)
