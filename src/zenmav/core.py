@@ -5,15 +5,20 @@ import csv
 from math import atan2
 from geopy.distance import distance
 from geopy import Point
+import threading 
+
 
 class Zenmav():
-    def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , baud = None, gps_thresh : float= None):
+    def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , baud = None, gps_thresh : float= None, GCS = False, tcp_ports = [14551]):
         '''Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol.'''
         self = self
         self.last_message_req = None
         self.gps_thresh = gps_thresh  # GPS threshold in meters
+
+        if GCS:
+            ip = self.split_connections(ip, tcp_ports)
+
         self.connect(ip, baud)
-        
 
         if self.gps_thresh is not None:
 
@@ -33,6 +38,29 @@ class Zenmav():
 
             point_east = distance(meters=self.gps_thresh).destination(ref_point, bearing=90)
             self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
+
+    def split_connections(self, ip : str, tcp_ports : list):
+        self.connections = []  
+        self.connections.append(mavutil.mavlink_connection(ip))
+        self.connections.append(mavutil.mavlink_connection('tcpin:0.0.0.0:14550'))  
+        for port in tcp_ports:
+            self.connections.append(mavutil.mavlink_connection(f'tcpin:0.0.0.0:{port}'))
+        
+        forwarding_thread = threading.Thread(target=self.message_forwarder, daemon=True)  
+        forwarding_thread.start()  
+        ip = 'tcp:127.0.0.1:14550'
+        return ip
+
+    def message_forwarder(self):  
+        """Background thread function for forwarding messages"""  
+        while True:  
+            for conn in self.connections:  
+                msg = conn.recv_match(blocking=False)  
+                if msg:  
+                    # Forward to all other connections  
+                    for other_conn in self.connections:  
+                        if other_conn != conn:  
+                            other_conn.write(msg.get_msgbuf())  
 
     def connect(self, ip_address : str ='tcp:127.0.0.1:5762', baud : int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
