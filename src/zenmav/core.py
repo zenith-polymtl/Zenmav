@@ -6,7 +6,7 @@ from math import atan2
 from geopy.distance import distance
 from geopy import Point
 import threading 
-
+import select
 
 class Zenmav():
     def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , baud = None, gps_thresh : float= None, GCS = False, tcp_ports = [14551]):
@@ -51,16 +51,19 @@ class Zenmav():
         ip = 'tcp:127.0.0.1:14550'
         return ip
 
-    def message_forwarder(self):  
-        """Background thread function for forwarding messages"""  
-        while True:  
-            for conn in self.connections:  
-                msg = conn.recv_match(blocking=False)  
-                if msg:  
-                    # Forward to all other connections  
-                    for other_conn in self.connections:  
-                        if other_conn != conn:  
-                            other_conn.write(msg.get_msgbuf())  
+    def message_forwarder(self):
+        # build a mapping {fd: conn} each loop in case the list changes
+        while True:
+            fd_to_conn = {conn.fd: conn for conn in self.connections if hasattr(conn, "fd")}
+            ready_fds, _, _ = select.select(fd_to_conn.keys(), [], [])
+            for fd in ready_fds:
+                conn = fd_to_conn[fd]
+                msg = conn.recv_match(blocking=False)
+                if msg:
+                    buf = msg.get_msgbuf()
+                    for other in self.connections:
+                        if other is not conn:
+                            other.write(buf)
 
     def connect(self, ip_address : str ='tcp:127.0.0.1:5762', baud : int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
@@ -156,7 +159,7 @@ class Zenmav():
 
         self.message_request(message_type=mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, freq_hz=frequency_hz)
 
-        while self.connection.recv_match(type='LOCAL_POSITION_NED', blocking=False):
+        while self.connection.recv_match(type='LOCAL_POSITION_NED', blocking=False, timeout=1):
             pass  # Discard old messages
 
         # Loop to receive the most recent message
@@ -183,7 +186,7 @@ class Zenmav():
         connection = self.connection
         self.message_request(message_type=mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, freq_hz=60)
 
-        while connection.recv_match(type="GLOBAL_POSITION_INT", blocking=False):
+        while connection.recv_match(type="GLOBAL_POSITION_INT", blocking=False, timeout=1):
             pass  # Discard old messages
 
         if time_tag == False:
@@ -235,8 +238,7 @@ class Zenmav():
             int: Raw RC channel value (1000 - 2000).
         """
 
-        # Request the RC_CHANNELS message at 10Hz
-        self.message_request(self.connection, mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, freq_hz=60)
+        self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, freq_hz=60)
 
         while self.connection.recv_match(type="RC_CHANNELS", blocking=False):
             pass  # Discard old messages
