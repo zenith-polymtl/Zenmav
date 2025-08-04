@@ -51,19 +51,43 @@ class Zenmav():
         ip = 'tcp:127.0.0.1:14550'
         return ip
 
-    def message_forwarder(self):
-        # build a mapping {fd: conn} each loop in case the list changes
-        while True:
-            fd_to_conn = {conn.fd: conn for conn in self.connections if hasattr(conn, "fd")}
-            ready_fds, _, _ = select.select(fd_to_conn.keys(), [], [])
-            for fd in ready_fds:
-                conn = fd_to_conn[fd]
-                msg = conn.recv_match(blocking=False)
-                if msg:
-                    buf = msg.get_msgbuf()
-                    for other in self.connections:
-                        if other is not conn:
-                            other.write(buf)
+    def message_forwarder(self):  
+        while True:  
+            # Separate UDP and TCP connections  
+            udp_connections = [conn for conn in self.connections if isinstance(conn, mavutil.mavudp)]  
+            tcp_connections = [conn for conn in self.connections if hasattr(conn, "fd") and conn.fd is not None]  
+            
+            # Handle TCP connections with select  
+            if tcp_connections:  
+                fd_to_conn = {conn.fd: conn for conn in tcp_connections}  
+                ready_fds, _, _ = select.select(fd_to_conn.keys(), [], [], 0.01)  # Short timeout  
+                for fd in ready_fds:  
+                    conn = fd_to_conn[fd]  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            buf = msg.get_msgbuf()  
+                            for other in self.connections:  
+                                if other is not conn:  
+                                    other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue 
+            if udp_connections:
+                # Handle UDP connections separately  
+                for conn in udp_connections:  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            buf = msg.get_msgbuf()  
+                            for other in self.connections:  
+                                if other is not conn:  
+                                    other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue 
+                
+                time.sleep(0.001)  # Small delay to prevent CPU spinning
 
     def connect(self, ip_address : str ='tcp:127.0.0.1:5762', baud : int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
@@ -72,7 +96,7 @@ class Zenmav():
             ip_address (str, optional): IP address for connection.
                 Sitl simulation : 'tcp:127.0.0.1:5762' .
                 Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
-
+                Zenith Siyi connexion : 'udpout:192.168.144.12:19856'
         Returns:
             None
         """
@@ -84,6 +108,11 @@ class Zenmav():
         else:
             self.connection = mavutil.mavlink_connection(ip_address)
         print('Waiting for heartbeat...')
+        self.connection.mav.heartbeat_send(  
+            mavutil.mavlink.MAV_TYPE_GCS,  
+            mavutil.mavlink.MAV_AUTOPILOT_INVALID,  
+            0, 0, 0  
+        )  
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
     
