@@ -73,6 +73,7 @@ class Zenmav():
                     except (TypeError, AttributeError) as e:  
                         # Skip corrupted messages that cause state issues  
                         continue 
+                    
             if udp_connections:
                 # Handle UDP connections separately  
                 for conn in udp_connections:  
