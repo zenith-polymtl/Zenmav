@@ -115,7 +115,7 @@ class Zenmav():
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
     
-    def global_target(self, wp : list, acceptance_radius : float=8e-6, while_moving  =None, wait_to_reach : bool=True):
+    def global_target(self, wp : list, while_moving  =None, wait_to_reach : bool=True):
             """Sends a movement command to the drone for a specific global GPS coordinate.
 
             Args:
@@ -142,12 +142,10 @@ class Zenmav():
                 0, 0  # No yaw or yaw rate
             )
 
-            gps = True if self.gps_thresh is not None else False
-
             if wait_to_reach:
                 # Wait for the waypoint to be reached
                 print("Waiting for waypoint to be reached...")
-                while not self.is_near_waypoint(self.get_global_pos(), wp, threshold=acceptance_radius, gps=gps):
+                while not self.is_near_waypoint(self.get_global_pos(), wp, threshold=acceptance_radius, gps=True):
                     if while_moving is not None:
                         while_moving()
                     else:
