@@ -34,6 +34,7 @@ class FenceSpec:
     frame: Literal["global","local"] = "global"
     origin: Union[str, Tuple[float,float,float], None] = None
     margin_m: float = 0.0
+    action:str = "brake"  # "brake" or "rtl"
     z_min_m: Optional[float] = None
     z_max_m: Optional[float] = None
     regions: List[PolygonRegion] = field(default_factory=list)
@@ -80,6 +81,8 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
 
     margin_m = _as_float(data.get("margin", 0.0), "margin")
 
+    action = str(data.get("action","brake")).lower()
+
     ztbl = data.get("z", {})
     z_min_m = _as_float(ztbl.get("min"), "z.min") if isinstance(ztbl, dict) else None
     z_max_m = _as_float(ztbl.get("max"), "z.max") if isinstance(ztbl, dict) else None
@@ -108,6 +111,7 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
         name=name,
         frame=frame,
         margin_m=float(margin_m),
+        action=action,
         z_min_m=z_min_m, z_max_m=z_max_m,
         regions=regions,
     )
@@ -147,7 +151,7 @@ class Fence():
         else:
             print(f"Loaded fence spec: {self.fence_spec.regions[0].points}, {self.fence_spec.regions[0].frame}")
 
-        self.start_breach_monitor(period=1.0)
+        self.start_breach_monitor(period=0.5)
     
     def start_breach_monitor(self, period: float = 1.0):
         if getattr(self, "_breach_thread", None) and self._breach_thread.is_alive():
@@ -161,8 +165,21 @@ class Fence():
     def stop_breach_monitor(self, timeout: float | None = None):
         if getattr(self, "_breach_stop", None):
             self._breach_stop.set()
-        if getattr(self, "_breach_thread", None):
+        # Only join if we’re NOT the breach thread
+        if getattr(self, "_breach_thread", None) and threading.current_thread() is not self._breach_thread:
             self._breach_thread.join(timeout=timeout)
+    
+    def breach_action(self):
+        if self.fence_spec.action == "brake":
+            print("Executing fence breach action: BRAKE")
+            self.drone.set_mode("BRAKE")
+        elif self.fence_spec.action == "rtl":
+            print("Executing fence breach action: RTL")
+            self.drone.set_mode("RTL")
+        else:
+            print(f"Unknown fence action: {self.fence_spec.action}")
+        
+        self.stop_breach_monitor()
 
     def _breach_loop(self, period: float):
         while not self._breach_stop.is_set():
@@ -172,9 +189,7 @@ class Fence():
                 if not inside:
                     print(f"WARNING: Drone is outside the fence at position {pos}.")
                     # Consider thread-safety here if your MAVLink senders aren’t thread-safe
-                    self.drone.set_mode("BRAKE")
-                else:
-                    print('inside fence')
+                    self.breach_action()
             except Exception as e:
                 print(f"[fence] breach loop error: {e}")
             # Use wait() so we can stop promptly
