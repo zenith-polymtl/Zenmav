@@ -1,6 +1,8 @@
+from zenfence import fence
 from core import Zenmav
-
+import time
 drone = Zenmav()
 
-drone.arm()
+
+fence(drone, "fence_config.toml")
 

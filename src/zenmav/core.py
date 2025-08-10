@@ -8,6 +8,7 @@ from geopy import Point
 import threading 
 import select
 
+
 class Zenmav():
     def __init__(self, ip: str = 'tcp:127.0.0.1:5762' , baud = None, gps_thresh : float= None, GCS = False, tcp_ports = [14551]):
         '''Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol.'''
@@ -19,7 +20,7 @@ class Zenmav():
             ip = self.split_connections(ip, tcp_ports)
 
         self.connect(ip, baud)
-
+        self.home = [0, 0, 0]
         if self.gps_thresh is not None:
 
             nav_thresh = self.get_param('WPNAV_RADIUS')/100
@@ -364,6 +365,10 @@ class Zenmav():
         connection = self.connection
         self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, freq_hz=1)
         armable = False
+
+        while self.connection.recv_match(type='SYS_STATUS', blocking=False, timeout=2):
+            pass
+
         while not armable:
             sys_status = connection.recv_match(type='SYS_STATUS', blocking=True, timeout=5)  
             if sys_status:  
@@ -773,3 +778,65 @@ class Zenmav():
 
         self.set_mode('GUIDED')
         self.global_target(initial_pos)
+
+    def get_battery(self):
+        """Fetches the current battery status from the drone.
+
+        Returns:
+            dict: A dictionary containing battery voltage, current, and remaining percentage.
+        """
+        self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, freq_hz=10)
+
+        while self.connection.recv_match(type='SYS_STATUS', blocking=False, timeout=2):
+            pass
+
+        sys_status = self.connection.recv_match(type='SYS_STATUS', blocking=True, timeout=2)  
+        if sys_status:  
+            print(f"Battery Voltage: {sys_status.voltage_battery/1000} V")  
+            print(f"Battery Current: {sys_status.current_battery/100} A") 
+            return battery(sys_status.voltage_battery / 1000.0, sys_status.current_battery / 100.0)  # Convert to volts and amps  
+            
+
+    def rc_override(self, channel_values : dict):
+        """
+        Override one or more RC input channels.
+
+        This simulates receiver PWM inputs. Provide only the channels you want
+        to override; any channel you omit is sent as UINT16_MAX (65535), which
+        instructs the flight controller to ignore that channel and keep using
+        the real RC input.
+
+        Args:
+            channel_values (dict[str, int]): Mapping of channel names to PWM
+                pulse widths in microseconds. Keys must be 'ch1'..'ch8'.
+                Each value must be an integer in the range [1000, 2000].
+                Example: {'ch3': 1500, 'ch7': 1800}
+
+        Notes:
+            • Overrides must be refreshed periodically (≈5–10 Hz). If you stop
+            sending them, the FC will revert to normal RC inputs.
+            Channel mapping note
+
+            • Standard ELRS / EdgeTX (Mode 2) uses AETR:
+            ch1=Roll (Aileron), ch2=Pitch (Elevator), ch3=Throttle, ch4=Yaw (Rudder).
+            • Aux channels (common on ArduPilot):
+            ch5=Flight mode switch, ch6=Tuning/knob, ch7/ch8=User-assigned (RCx_OPTION).
+            • Some radios use TAER instead:
+            ch1=Throttle, ch2=Roll, ch3=Pitch, ch4=Yaw.
+            
+
+        Returns:
+            None
+        """
+        ch = [int(channel_values.get(f"ch{i}", 65535)) for i in range(1, 9)]
+        
+        self.connection.mav.rc_channels_override_send(
+        self.connection.target_system,
+        self.connection.target_component,
+        *ch
+    )
+        
+class battery():
+    def __init__(self, voltage : float, current : float):
+        self.voltage = voltage
+        self.current = current
