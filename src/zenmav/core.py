@@ -362,6 +362,23 @@ class Zenmav():
         """Arms the drone
         """
         connection = self.connection
+        self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, freq_hz=1)
+        armable = False
+        while not armable:
+            sys_status = connection.recv_match(type='SYS_STATUS', blocking=True, timeout=5)  
+            if sys_status:  
+                prearm_bit = mavutil.mavlink.MAV_SYS_STATUS_PREARM_CHECK  
+                # Check if pre-arm checks are healthy  
+                if sys_status.onboard_control_sensors_health & prearm_bit:  
+                    print("Vehicle is armable - pre-arm checks passed") 
+                    armable = True 
+                else:  
+                    print("Vehicle is NOT armable - pre-arm checks failed")
+                    time.sleep(0.2)  
+            else:
+                print('ERROR : ARMING FAILURE PLEASE VERIFY SYSTEM')
+                break
+          
         # Arm the vehicle
         print("Arming motors...")
         connection.mav.command_long_send(
