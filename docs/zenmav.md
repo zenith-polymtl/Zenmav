@@ -9,26 +9,28 @@ parameters, return values and usage notes.
 ## Table of Contents
 
 1. Constructor & basic connection
-2. Flight-mode helpers
-3. Navigation & motion commands
-4. Telemetry & helpers
-5. Parameter & RC utilities
-6. Autonomous scan utilities
-7. CSV helpers
-8. Demo manoeuvre (auto-flip)
+2. Mavlink routing
+3. Flight-mode helpers
+4. Navigation & motion commands
+5. Telemetry & helpers
+6. Parameter & RC utilities
+7. Autonomous scan utilities
+8. CSV helpers
+9. Demo manoeuvre (auto-flip)
 
 ---
 
-## 1  Constructor & basic connection
+## 1  Constructor & basic connection + Optionnal Mavlink routing
 
 ### `__init__(self, gps_thresh: float | None = None, ip: str = 'tcp:127.0.0.1:5762')`
 
 Initialises the object and (optionally) pre-computes GPS accuracy thresholds.
 
-| Argument       | Type         | Description                                                                                                                                                                                                 |
-| -------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gps_thresh` | float\| None | Radius in metres used to decide when a global waypoint is*reached*. When provided, internal latitude/longitude deltas (`lat_thresh`, `lon_thresh`) are calculated from the current GPS home position. |
-| `ip`         | str          | MAVLink connection string (TCP or UDP). Defaults to SITL:`tcp:127.0.0.1:5762`.                                                                                                                            |
+
+| Argument     | Type         | Description                                                                                                                                                                                           |
+| ------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gps_thresh` | float\| None | Radius in metres used to decide when a global waypoint is*reached*. When provided, internal latitude/longitude deltas (`lat_thresh`, `lon_thresh`) are calculated from the current GPS home position. If not provided will base the gps_tresh of the current config WPNAV_RADIUS + 0.5 m |
+| `ip`         | str          | MAVLink connection string (TCP or UDP). Defaults to SITL:`tcp:127.0.0.1:5762`.                                                                                                                        |
 
 If `gps_thresh` is set, `self.home` is stored as the aircraft’s current global
 position and is reused by `convert_to_global`.
@@ -37,19 +39,20 @@ position and is reused by `convert_to_global`.
 
 ## 2  Flight-mode helpers
 
-| Function                                                       | Purpose                                                                                                                     |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `set_mode(mode: str)`                                        | Switches flight mode (`GUIDED`, `AUTO`, `RTL`, `ALT_HOLD`, `FLIP`, …).                                           |
-| `arm()`                                                      | Issues an `ARM/DISARM` command and blocks until motors are armed.                                                         |
-| `takeoff(altitude = 10, while_moving = None)`                | Performs a guided take-off to `altitude` [m]. Optional callback `while_moving()` is executed repeatedly while climbing. |
-| `guided_arm_takeoff(ip = 'tcp:127.0.0.1:5762', height = 20)` | Convenience wrapper combining `set_mode('GUIDED')`, `arm`, and `takeoff`.                                            |
-| `RTL(while_moving = None)`                                   | Return-to-Launch, waits for landing & disarm, then closes the link.                                                         |
+
+| Function                                                                          | Purpose                                                                                                                |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| set_mode(mode: str)                                                               | Switches flight mode (`GUIDED`, `AUTO`, `RTL`, `ALT_HOLD`, `FLIP`, …).                                                |
+| `arm()`                                                  | Issues an`ARM/DISARM` command and blocks until motors are armed. Will retry until all pre arm checks are satisfied     |
+| `takeoff(altitude = 10, while_moving = None)`                                     | Performs a guided take-off to`altitude` [m]. Optional callback `while_moving()` is executed repeatedly while climbing. |
+| `guided_arm_takeoff(ip = 'tcp:127.0.0.1:5762', height = 20)`                      | Convenience wrapper combining`set_mode('GUIDED')`, `arm`, and `takeoff`.                                               |
+| `RTL(while_moving = None)`                                                        | Return-to-Launch, waits for landing & disarm, then closes the link.                                                    |
 
 ---
 
 ## 3  Navigation & motion commands
 
-### `global_target(self, wp, acceptance_radius = 8e-6, while_moving = None, wait_to_reach = True)`
+### `global_target(self, wp, while_moving = None, wait_to_reach = True)`
 
 Fly to an **absolute GPS waypoint**.
 
@@ -106,18 +109,20 @@ Utility that evaluates proximity.
 
 ## 4  Telemetry & helpers
 
-| Function                                              | Description                                                                                          |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `get_global_pos(time_tag = False, heading = False)` | Returns `(lat, lon, alt)` or `(timestamp, lat, lon, rel_alt)`; `heading=True` appends `hdg`. |
-| `get_local_pos(frequency_hz = 60)`                  | Requests/streams `LOCAL_POSITION_NED` at `frequency_hz`; returns `[N, E, D]`.                  |
-| `message_request(message_type, freq_hz = 10)`       | Internal helper: configures message stream rate, avoiding duplicate requests.                        |
+
+| Function                                            | Description                                                                                 |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `get_global_pos(time_tag = False, heading = False)` | Returns`(lat, lon, alt)` or `(timestamp, lat, lon, rel_alt)`; `heading=True` appends `hdg`. |
+| `get_local_pos(frequency_hz = 60)`                  | Requests/streams`LOCAL_POSITION_NED` at `frequency_hz`; returns `[N, E, D]`.                |
+| `message_request(message_type, freq_hz = 10)`       | Internal helper: configures message stream rate, avoiding duplicate requests.               |
 
 ---
 
 ## 5  Parameter & RC utilities
 
-| Function                         | Purpose                                                |
-| -------------------------------- | ------------------------------------------------------ |
+
+| Function                       | Purpose                                                |
+| ------------------------------ | ------------------------------------------------------ |
 | `get_param(param_name)`        | Fetches a single ArduPilot parameter (float).          |
 | `set_param(param_name, value)` | Sets a parameter and waits for confirmation.           |
 | `get_rc_value(channel)`        | Reads raw RC channel (1 – 18) value (1000–2000 µs). |
@@ -130,13 +135,14 @@ Utility that evaluates proximity.
 
 Performs a circular spiral scan.
 
-| Argument            | Unit                 | Meaning                                                                      |
-| ------------------- | -------------------- | ---------------------------------------------------------------------------- |
-| `detection_width` | m                    | Sensor footprint used as pass spacing.                                       |
-| `altitude`        | m                    | Relative altitude for the scan (positive up → send `-altitude` as NED Z). |
-| `scan_radius`     | m                    | Nominal radius to cover.                                                     |
-| `safety_margin`   | m                    | Extra radius added once at start.                                            |
-| `center`          | NED list or `None` | Scan centre; defaults to current local pos.                                  |
+
+| Argument          | Unit              | Meaning                                                                   |
+| ----------------- | ----------------- | ------------------------------------------------------------------------- |
+| `detection_width` | m                 | Sensor footprint used as pass spacing.                                    |
+| `altitude`        | m                 | Relative altitude for the scan (positive up → send`-altitude` as NED Z). |
+| `scan_radius`     | m                 | Nominal radius to cover.                                                  |
+| `safety_margin`   | m                 | Extra radius added once at start.                                         |
+| `center`          | NED list or`None` | Scan centre; defaults to current local pos.                               |
 
 Traverses waypoints sequentially; prints total duration.
 
@@ -158,10 +164,11 @@ Returns two lists with local coordinates (metres).
 
 ## 7  CSV helpers
 
-| Function                                                    | Description                                                                       |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `insert_coordinates_to_csv(file_path, coordinates, desc)` | Appends `(lat, lon, desc)` to `file_path` (creates file + header if missing). |
-| `append_description_to_last_line(file_path, description)` | Static helper; opens CSV, appends `description` to last data row.               |
+
+| Function                                                  | Description                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `insert_coordinates_to_csv(file_path, coordinates, desc)` | Appends`(lat, lon, desc)` to `file_path` (creates file + header if missing). |
+| `append_description_to_last_line(file_path, description)` | Static helper; opens CSV, appends`description` to last data row.             |
 
 ---
 
