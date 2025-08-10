@@ -20,25 +20,22 @@ class Zenmav():
             ip = self.split_connections(ip, tcp_ports)
 
         self.connect(ip, baud)
-        self.home = [0, 0, 0]
-        if self.gps_thresh is not None:
+        nav_thresh = self.get_param('WPNAV_RADIUS')/100
 
-            nav_thresh = self.get_param('WPNAV_RADIUS')/100
-            print(f'Nav_thresh : {nav_thresh}')
-            print(f'GPS_thresh : {self.gps_thresh}')
-
+        if self.gps_thresh is None:
+            self.gps_threst = nav_thresh + 0.5
+        else:
             if nav_thresh > self.gps_thresh:
                 while True:
                     print(f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}.")
 
+        self.home = self.get_global_pos()
+        ref_point = Point(self.home[0], self.home[1])
+        point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
+        self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
 
-            self.home = self.get_global_pos()
-            ref_point = Point(self.home[0], self.home[1])
-            point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
-            self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
-
-            point_east = distance(meters=self.gps_thresh).destination(ref_point, bearing=90)
-            self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
+        point_east = distance(meters=self.gps_thresh).destination(ref_point, bearing=90)
+        self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
     def split_connections(self, ip : str, tcp_ports : list):
         self.connections = []  
@@ -197,7 +194,7 @@ class Zenmav():
         while True:
             msg = self.connection.recv_match(type='LOCAL_POSITION_NED', blocking=True) 
             if msg and msg.get_type() == "LOCAL_POSITION_NED":
-                print(f"Position: X = {msg.x} m, Y = {msg.y} m, Z = {msg.z} m")
+                #print(f"Position: X = {msg.x} m, Y = {msg.y} m, Z = {msg.z} m")
                 return [msg.x, msg.y, msg.z]
             # Reduce busy-waiting and ensure responsiveness
 
@@ -231,7 +228,7 @@ class Zenmav():
                     alt = msg.relative_alt / 1000.0  # Convert from mm to meters (relative altitude)
                     hdg = msg.hdg/100
 
-                    print(f"Position: Lat = {lat}°, Lon = {lon}°, Alt = {alt} meters, hdg = {hdg}")
+                    #print(f"Position: Lat = {lat}°, Lon = {lon}°, Alt = {alt} meters, hdg = {hdg}")
                     
                     if heading:
                         pos = lat, lon, alt, hdg

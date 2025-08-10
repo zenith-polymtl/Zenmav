@@ -1,17 +1,18 @@
 version = 1
-name    = "Test Site A"
-frame   = "global"                  # global | local
-margin  = 5.0                       # meters (pre-breach buffer)
+name    = "Hangar Test Box"
+frame   = "local"
+origin  = [45.501500, -73.566500, 30.0]  # lat, lon, alt; or "home"
+margin  = 2.0
 
 [z]
-min = 10.0                          # meters AMSL/AGL (interpretation up to usage)
-max = 120.0
+min = 0.0
+max = 30.0
 
 [[regions]]
 kind   = "include-polygon"
-latlon = [
-  [45.501000, -73.567000],
-  [45.502000, -73.567000],
-  [45.502000, -73.565000],
-  [45.501000, -73.565000]
+points = [
+  [-10.0,   -10.0],
+  [100.0, -10.0],
+  [100.0, 50.0],
+  [-10.0,   50.0]
 ]

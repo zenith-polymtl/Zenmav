@@ -39,7 +39,6 @@ latlon = [
 version = 1
 name    = "Hangar Test Box"
 frame   = "local"
-origin  = [45.501500, -73.566500, 30.0]  # lat, lon, alt; or "home"
 margin  = 2.0
 
 [z]

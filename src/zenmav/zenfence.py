@@ -3,7 +3,6 @@ from pymavlink import mavutil
 import time
 import numpy as np
 from geopy.distance import distance
-from geopy import Point
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Literal, Dict, Any, Union
 from pathlib import Path
@@ -11,6 +10,7 @@ from geopy.distance import geodesic
 from shapely.geometry import Point, Polygon
 from shapely.prepared import prep
 from pyproj import Transformer
+import threading
 
 try:
     import tomllib  # Python 3.11+
@@ -43,11 +43,6 @@ class FenceSpec:
             raise ValueError(f"Unsupported fence version: {self.version}")
         if self.frame not in ("global","local"):
             raise ValueError(f"frame must be 'global' or 'local', got {self.frame}")
-        if self.frame == "local":
-            if self.origin is None:
-                raise ValueError("local frame requires 'origin' ('home' or [lat, lon, alt])")
-            if isinstance(self.origin, (list, tuple)) and len(self.origin) != 3:
-                raise ValueError("origin must be [lat, lon, alt] when array is used")
         if self.z_min_m is not None and self.z_max_m is not None and self.z_min_m > self.z_max_m:
             raise ValueError(f"z.min ({self.z_min_m}) > z.max ({self.z_max_m})")
         if not self.regions:
@@ -82,13 +77,6 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
     version = int(data.get("version", 1))
     name    = data.get("name")
     frame   = str(data.get("frame", "global")).lower()
-    origin  = data.get("origin")
-    if isinstance(origin, list):
-        if len(origin) != 3:
-            raise ValueError("origin must be [lat, lon, alt] when array is used")
-        origin = (float(origin[0]), float(origin[1]), float(origin[2]))
-    elif origin is not None:
-        origin = str(origin)  # e.g., "home"
 
     margin_m = _as_float(data.get("margin", 0.0), "margin")
 
@@ -118,7 +106,7 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
     spec = FenceSpec(
         version=version,
         name=name,
-        frame=frame, origin=origin,
+        frame=frame,
         margin_m=float(margin_m),
         z_min_m=z_min_m, z_max_m=z_max_m,
         regions=regions,
@@ -127,8 +115,7 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
     return spec
 
 
-
-class fence():
+class Fence():
     def __init__(self, drone, config_path):
         """
         Initialize a fence with a center point and radius.
@@ -141,12 +128,57 @@ class fence():
         self.drone = drone
         self.home = drone.home
         self.config_path = config_path
-        self.fence_spec = None
 
         self.fence_spec = load_fence_toml(config_path)
 
-        print(f"Loaded fence spec: {self.fence_spec.regions[0].latlon}, {self.fence_spec.regions[0].frame}")
+        if self.fence_spec.frame == "global":
+            poly_ll = self.fence_spec.regions[0].latlon   # list[(lat,lon)]
+            self.prepared, self.transformer = self.build_fence_global(
+                poly_ll, margin_m=self.fence_spec.margin_m
+            )
+        else:
+            poly_xy = self.fence_spec.regions[0].points   # list[(x,y)] meters
+            self.prepared, self.transformer = self.build_fence_local(
+                poly_xy, margin_m=self.fence_spec.margin_m
+            )
 
+        if self.fence_spec.frame == "global":
+            print(f"Loaded fence spec: {self.fence_spec.regions[0].latlon}, {self.fence_spec.regions[0].frame}")
+        else:
+            print(f"Loaded fence spec: {self.fence_spec.regions[0].points}, {self.fence_spec.regions[0].frame}")
+
+        self.start_breach_monitor(period=1.0)
+    
+    def start_breach_monitor(self, period: float = 1.0):
+        if getattr(self, "_breach_thread", None) and self._breach_thread.is_alive():
+            return  # already running
+        self._breach_stop = threading.Event()
+        self._breach_thread = threading.Thread(
+            target=self._breach_loop, args=(period,), daemon=True
+        )
+        self._breach_thread.start()
+
+    def stop_breach_monitor(self, timeout: float | None = None):
+        if getattr(self, "_breach_stop", None):
+            self._breach_stop.set()
+        if getattr(self, "_breach_thread", None):
+            self._breach_thread.join(timeout=timeout)
+
+    def _breach_loop(self, period: float):
+        while not self._breach_stop.is_set():
+            try:
+                pos = self.drone.get_global_pos()
+                inside = self.check_inside(pos, frame="global")
+                if not inside:
+                    print(f"WARNING: Drone is outside the fence at position {pos}.")
+                    # Consider thread-safety here if your MAVLink senders aren’t thread-safe
+                    self.drone.set_mode("BRAKE")
+                else:
+                    print('inside fence')
+            except Exception as e:
+                print(f"[fence] breach loop error: {e}")
+            # Use wait() so we can stop promptly
+            self._breach_stop.wait(period)
 
     def _utm_crs_from_lonlat(self, lon: float, lat: float) -> str:
         zone = int((lon + 180) // 6) + 1
@@ -158,7 +190,7 @@ class fence():
         margin_m:   shrink inside by this margin (>=0). Use buffer(-margin).
         Returns: (prepared_polygon_in_meters, transformer)
         """
-        # choose a sensible local projection (UTM of centroid)
+        # Mean point of zone as center of UTM projection
         latc = sum(lat for lat, _ in polygon_ll) / len(polygon_ll)
         lonc = sum(lon for _, lon in polygon_ll) / len(polygon_ll)
         transformer = Transformer.from_crs("EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True)
@@ -168,8 +200,22 @@ class fence():
         if margin_m:
             poly_xy = poly_xy.buffer(-float(margin_m))  # negative = shrink inward
         return prep(poly_xy), transformer
+    
+    def build_fence_local(self, polygon_xy, margin_m: float = 0.0):
+        """polygon_xy: list[(x=East, y=North), ...] in meters"""
+        poly = Polygon([(e, n) for (n, e) in polygon_xy])
+        if margin_m:
+            shrunk = poly.buffer(-float(margin_m))  # shrink inward by margin
+            if not shrunk.is_empty:
+                poly = shrunk
 
-    def inside_fence(self, point, prepared_poly, transformer, *, frame="global"):
+        latc = self.home[0]
+        lonc = self.home[1]
+        transformer = Transformer.from_crs("EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True)
+        self.origin_xy = transformer.transform(lonc, latc)
+        return prep(poly), transformer  # no transformer needed
+
+    def check_inside(self, point, *, frame="global"):
         """
         point:
         global: (lat, lon) or {'lat':..,'lon':..}
@@ -177,14 +223,18 @@ class fence():
         frame: "global" if point is lat/lon, "local" if point is N/E in meters
         """
         if frame == "global":
-            if isinstance(point, dict):
-                lat, lon = float(point["lat"]), float(point["lon"])
+            lat, lon = float(point[0]), float(point[1])
+            xg, yg = self.transformer.transform(lon, lat)
+
+            # NEW: if fence is local, express the point in local NED meters by subtracting origin
+            if self.fence_spec.frame == "local":
+                x0, y0 = self.origin_xy
+                x, y = xg - x0, yg - y0
             else:
-                lat, lon = float(point[0]), float(point[1])
-            x, y = transformer.transform(lon, lat)  # lon,lat -> x,y meters
+                x, y = xg, yg
         else:
             # Local NED point: map (N,E) -> (y,x)
             n, e = float(point[0]), float(point[1])
             x, y = e, n
 
-        return prepared_poly.contains(Point(x, y))
+        return self.prepared.context.covers(Point(x, y))
