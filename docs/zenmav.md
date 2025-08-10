@@ -1,4 +1,4 @@
-# Zenmav 0.0.5 – Full API Reference
+# Zenmav 0.0.10 – Full API Reference
 
 This document lists every public attribute and function included in
 `zenmav.core.Zenmav` as of version 0.0.5, with their signatures, purpose,
@@ -29,10 +29,12 @@ Initialises the object and (optionally) pre-computes GPS accuracy thresholds.
 
 | Argument     | Type         | Description                                                                                                                                                                                           |
 | ------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ip`         | str          | MAVLink connection string (TCP or UDP). Defaults to SITL:`tcp:127.0.0.1:5762`.   
 | `gps_thresh` | float\| None | Radius in metres used to decide when a global waypoint is*reached*. When provided, internal latitude/longitude deltas (`lat_thresh`, `lon_thresh`) are calculated from the current GPS home position. If not provided will base the gps_tresh of the current config WPNAV_RADIUS + 0.5 m |
-| `ip`         | str          | MAVLink connection string (TCP or UDP). Defaults to SITL:`tcp:127.0.0.1:5762`.                                                                                                                        |
+| `GCS`         | bool          | If true, zenmav will relay the mavlink connection to tcp connexions provided in the `tcp_ports` list     
+| `tcp_ports`         | list          | Ports numbers where to relay the mavlink connexion defaults to only port 14551, but more can be added if needed. Hence the ip ports are of type 'tcp:127.0.0.1:port_number'.                                                                                                                   |
 
-If `gps_thresh` is set, `self.home` is stored as the aircraft’s current global
+`self.home` is stored as the aircraft’s current global
 position and is reused by `convert_to_global`.
 
 ---
@@ -42,11 +44,11 @@ position and is reused by `convert_to_global`.
 
 | Function                                                                          | Purpose                                                                                                                |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| set_mode(mode: str)                                                               | Switches flight mode (`GUIDED`, `AUTO`, `RTL`, `ALT_HOLD`, `FLIP`, …).                                                |
-| `arm()`                                                  | Issues an`ARM/DISARM` command and blocks until motors are armed. Will retry until all pre arm checks are satisfied     |
-| `takeoff(altitude = 10, while_moving = None)`                                     | Performs a guided take-off to`altitude` [m]. Optional callback `while_moving()` is executed repeatedly while climbing. |
-| `guided_arm_takeoff(ip = 'tcp:127.0.0.1:5762', height = 20)`                      | Convenience wrapper combining`set_mode('GUIDED')`, `arm`, and `takeoff`.                                               |
-| `RTL(while_moving = None)`                                                        | Return-to-Launch, waits for landing & disarm, then closes the link.                                                    |
+| set_mode(mode: str)                                                               | Switches flight mode (`GUIDED`, `LOITER`, `RTL`, `ALT_HOLD`, `FLIP`, …). All AP supported modes are supported.                                                |
+| `arm()`                                                  | Issues an`ARM/DISARM` command and blocks until motors are armed. Will retry until all pre arm checks are satisfied. It is NOT recommended to use on real flights, the pilot should be the only one who arms the drone.     |
+| `takeoff(altitude = 10, while_moving = None)`                                     | Performs a guided take-off to`altitude` [m]. Possibility of running a function while moving trough    `while_moving = func` |
+| `guided_arm_takeoff(height = 20)`                      | Convenience wrapper combining`set_mode('GUIDED')`, `arm`, and `takeoff`.                                               |
+| `RTL()`                                                        | Return-to-Launch, waits for landing & disarm, then closes the link. Possibility of running a function while moving trough    `while_moving = func`                                           |
 
 ---
 
@@ -56,7 +58,7 @@ position and is reused by `convert_to_global`.
 
 Fly to an **absolute GPS waypoint**.
 
-- `wp`: tuple `(lat, lon, rel_alt)`
+- `wp`: list `[lat, lon, rel_alt]`
 - `acceptance_radius`: ignored when `gps_thresh` was supplied at construction;
   Provide gps_thresh under all conditions, default is autopilot value + 0.5 m
 - `while_moving`: optional callback executed every loop iteration.
@@ -83,7 +85,7 @@ Continuous **body-frame velocity** command.
 - `wp`: `[vx_fwd, vy_right, vz_down]` in m s⁻¹ (positive *down*).
 - `yaw_rate`: deg s⁻¹ (converted to rad s⁻¹ before transmission).
 
-No blocking; prints the commanded speeds each call.
+Non blocking; prints the commanded speeds each call. Speed commands must be sent faster than 5 Hz. 
 
 ---
 
@@ -92,7 +94,7 @@ No blocking; prints the commanded speeds each call.
 Translate a local **(East, North)** offset (metres) into GPS coordinates.
 
 - `local_delta`: tuple `(east_m, north_m)`
-- `reference_point`: `[lat, lon]`. `None` → `self.home`.
+- `reference_point`: `[lat, lon]`. If reference_point is `None`, it will be set as the home location `self.home`.
 
 Returns `[lat, lon]`.
 
@@ -101,7 +103,8 @@ Returns `[lat, lon]`.
 ### `is_near_waypoint(self, actual, target, threshold = 2., gps = False)`
 
 Utility that evaluates proximity.
-
+ ` actual` - list: Current position. Defined as normal waypoints.
+ ` target` - list: Waypoint. Defined as normal waypoints.
 - For `gps = False`: Euclidean distance `< threshold` [m].
 - For `gps = True`: compares lat/lon against internal `lat_thresh/lon_thresh`.
 
@@ -114,7 +117,8 @@ Utility that evaluates proximity.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `get_global_pos(time_tag = False, heading = False)` | Returns`(lat, lon, alt)` or `(timestamp, lat, lon, rel_alt)`; `heading=True` appends `hdg`. |
 | `get_local_pos(frequency_hz = 60)`                  | Requests/streams`LOCAL_POSITION_NED` at `frequency_hz`; returns `[N, E, D]`.                |
-| `message_request(message_type, freq_hz = 10)`       | Internal helper: configures message stream rate, avoiding duplicate requests.               |
+| `get_battery()`                  | Requests the battery voltage and current accessible via `get_battery().voltage` and `get_battery().current()`  
+| `message_request(message_type, freq_hz = 10)`       | Internal helper: configures message stream rate, avoiding duplicate requests. Mostly useful for developping new telemetry options               |
 
 ---
 
@@ -126,14 +130,16 @@ Utility that evaluates proximity.
 | `get_param(param_name)`        | Fetches a single ArduPilot parameter (float).          |
 | `set_param(param_name, value)` | Sets a parameter and waits for confirmation.           |
 | `get_rc_value(channel)`        | Reads raw RC channel (1 – 18) value (1000–2000 µs). |
+| `rc_override(channes_values)`        | Keys must be 'ch1'..'ch8'. Each value must be an integer in the range [1000, 2000]. Example: {'ch3': 1500, 'ch7': 1800}. Ignore channels that are not passed|
 
 ---
 
 ## 6  Autonomous scan utilities
 
-### `spiral_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
 
-Performs a circular spiral scan.
+---
+
+### `rectilinear_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
 
 
 | Argument          | Unit              | Meaning                                                                   |
@@ -144,21 +150,14 @@ Performs a circular spiral scan.
 | `safety_margin`   | m                 | Extra radius added once at start.                                         |
 | `center`          | NED list or`None` | Scan centre; defaults to current local pos.                               |
 
+
+
+
+### `spiral_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
+
+Same arguments as above, but generates a spiral pattern. Not too good to be honest because of AP's threshold logic. To be improved by adapting the threshold while spiraling. Might be removed soon. If you need it, ask yourself why, and consider doing it yourself with the other functions
+
 Traverses waypoints sequentially; prints total duration.
-
----
-
-### `rectilinear_scan(detection_width = 10, altitude = 10, scan_radius = 100, safety_margin = 0, center = None)`
-
-Same arguments as above, but generates a lawn-mower pattern.
-
----
-
-### `generate_scan_points(scan_width = 2, radius_of_scan = 13) → (x_list, y_list)`
-
-Static helper for rectilinear pattern generation; **does not command the
-aircraft**.
-Returns two lists with local coordinates (metres).
 
 ---
 

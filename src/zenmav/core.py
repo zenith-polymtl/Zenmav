@@ -703,6 +703,7 @@ class Zenmav():
         else:
             pos = center
         
+        global_pos = self.convert_to_global(pos)
         
         
         e = detection_width
@@ -717,22 +718,27 @@ class Zenmav():
             w = e*(1/2 + n)
             h = np.sqrt(radius**2 - (radius - w)**2)
             if high:
-                x.append(-radius + w)
-                y.append(h)
-                x.append(-radius + w)
-                y.append(-h)
+                y.append(-radius + w)
+                x.append(h)
+                y.append(-radius + w)
+                x.append(-h)
                 high = False
             else:
-                x.append(-radius + w)
-                y.append(-h)
-                x.append(-radius + w)
-                y.append(h)
+                y.append(-radius + w)
+                x.append(-h)
+                y.append(-radius + w)
+                x.append(h)
                 high = True
+
         start_time = time.time()
 
+        x,y = y, x
+
+        reference_point = Point(global_pos[0], global_pos[1])
         for i in range(len(x)):
-            wp = [x[i] + pos[0], y[i] + pos[1], -altitude]
-            self.local_target(wp, acceptance_radius=3)
+            point_north = distance(meters=y[i]).destination(reference_point, bearing=0)
+            point_final = distance(meters=x[i]).destination(point_north, bearing=90)
+            self.global_target([point_final.latitude, point_final.longitude, altitude])
 
         total_time = time.time() - start_time
         print("SCAN FINISHED")
