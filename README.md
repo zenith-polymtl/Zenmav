@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Zenmav is a lightweight Python wrapper that lets you write **five-line flight
-scripts** for ArduPilot-controlled drones in either SITL or real hardware. 
+scripts** for ArduPilot-controlled drones in either SITL or real hardware.
 Developed by **Zenith Polytechnique Montréal**.
 
 ## Key Features
@@ -21,8 +21,8 @@ Developed by **Zenith Polytechnique Montréal**.
 
 ## Safety Disclaimer
 
-**Always test new scripts in SITL first.**  
-When flying a real aircraft you are solely responsible for airworthiness, regulatory compliance and safe operation.  
+**Always test new scripts in SITL first.**
+When flying a real aircraft you are solely responsible for airworthiness, regulatory compliance and safe operation.
 Operate in a clear area, keep visual line-of-sight and have a manual RC transmitter ready to take over. It is highly recommended **NOT** to use the arming command inside a script for a real drone unless thoroughly tested.
 
 ---
@@ -39,16 +39,16 @@ SITL users only need MAVProxy running on port 5762 (default shown below).
 
 ## Quick Start
 
-Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.  
-Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set. 
+Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.
+Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set.
 
-------------------------------------------------------------------------------------------------------------------------
+---
+
 Example 1 — Fly to a local waypoint and come back
-------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------
 
 ```python
 # example_local_target.py
-# Demonstrates local_target()    (requires zenmav 0.0.5)
 
 import time
 from zenmav.core import Zenmav
@@ -59,9 +59,9 @@ def main() -> None:
     drone.set_mode("GUIDED")
     drone.takeoff(altitude=15)       # climb to 15 m AGL
 
-    # Fly 30 m North, 20 m East, keep same altitude (Down = 0)
+    # Fly 30 m North, 20 m East, -10 m down (NED, means 10 m in alt)
     print("Navigating to local waypoint …")
-    drone.local_target([30, 20, 0])
+    drone.local_target([30, 20, -10])
 
     # Hold position 5 s
     time.sleep(5)
@@ -73,24 +73,25 @@ if __name__ == "__main__":
     main()
 ```
 
-------------------------------------------------------------------------------------------------------------------------
-Example 2 — Quick spiral scan of a 50 m radius area
-------------------------------------------------------------------------------------------------------------------------
+---
+
+Example 2 — Quick lawnmower of a 50 m radius area
+--------------------------------------------------
 
 ```python
 # example_spiral_scan.py
-# Demonstrates spiral_scan()     (requires zenmav 0.0.5)
+# Demonstrates rectilinear_scan()
 
 from zenmav.core import Zenmav
 
 def main() -> None:
-    drone = Zenmav(gps_thresh=2)     # enables waypoint-reach detection in metres
+    drone = Zenmav(gps_thresh=3)     # enables specific waypoint-reach detection in metres, default is current value of controller + 0.5 m
     drone.arm()
     drone.set_mode("GUIDED")
     drone.takeoff(altitude=25)       # climb to 25 m AGL
 
     print("Starting spiral scan …")
-    drone.spiral_scan(
+    drone.rectilinear_scan(
         largeur_detection=8,         # 8 m sensor footprint
         altitude=25,                 # keep current altitude
         rayon_scan=50,               # cover a 50 m radius
@@ -103,9 +104,10 @@ if __name__ == "__main__":
     main()
 ```
 
-------------------------------------------------------------------------------------------------------------------------
+---
+
 Example 3 — Log a GPS point to CSV and adjust cruise speed
-------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------
 
 ```python
 # example_csv_and_params.py
@@ -114,7 +116,7 @@ Example 3 — Log a GPS point to CSV and adjust cruise speed
 import csv
 from pathlib import Path
 from zenmav.core import Zenmav
-
+import time
 CSV_FILE = Path("waypoints.csv")
 
 def main() -> None:
@@ -136,6 +138,7 @@ def main() -> None:
     # Fly forward at 3 m/s for ~3 s using body-frame velocity
     for _ in range(30):
         drone.speed_target([3, 0, 0])     # 3 m/s forward, level flight
+	time.sleep(0.1)
     print("Short cruise complete")
 
     drone.RTL()
@@ -158,18 +161,19 @@ Available in docs/zenmav.md
 ---
 
 ## Troubleshooting
-| Symptom                             | Fix                                    |
-|-------------------------------------|----------------------------------------|
-| `No heartbeat in 5 seconds`         | Check connection string / firewall     |
-| `PermissionError: ttyACM0`          | `sudo usermod -aG dialout $USER`       |
-| Waypoint never “reached”            | Provide `gps_thresh` at construction   |
-| Takeoff not working            | Make sure to be in Guided mode   |
+
+| Symptom                       | Fix                                    |
+| ----------------------------- | -------------------------------------- |
+| `No heartbeat in 5 seconds` | Check connection string / firewall     |
+| `PermissionError: ttyACM0`  | `sudo usermod -aG dialout $USER`     |
+| Waypoint never “reached”    | Provide `gps_thresh` at construction |
+| Takeoff not working           | Make sure to be in Guided mode         |
 
 ---
 
 ## Contributing
 
-Issues and pull requests are welcome!  
+Issues and pull requests are welcome!
 Please fork the repository, create a feature branch and open an MR when ready.
 
 ---
@@ -178,10 +182,10 @@ Please fork the repository, create a feature branch and open an MR when ready.
 
 To push new version, update pyproject.toml
 
-```python3 -m build```
+``python3 -m build``
 
-Upload with 
+Upload with
 
-```twine upload dist/*```
+``twine upload dist/*``
 
 Enter API Token (Currently only accessible by maintainer Colin Rousseau)
