@@ -22,7 +22,7 @@ parameters, return values and usage notes.
 
 ## 1  Constructor & basic connection + Optionnal Mavlink routing
 
-### `__init__(self, gps_thresh: float | None = None, ip: str = 'tcp:127.0.0.1:5762')`
+### `__init__(self, gps_thresh: float | None = None, ip: str = 'tcp:127.0 .0.1:5762', | GCS : bool = False, | tcp_ports : list = [14551], boundary_path : str = None)`
 
 Initialises the object and (optionally) pre-computes GPS accuracy thresholds.
 
@@ -32,7 +32,8 @@ Initialises the object and (optionally) pre-computes GPS accuracy thresholds.
 | `ip`         | str          | MAVLink connection string (TCP or UDP). Defaults to SITL:`tcp:127.0.0.1:5762`.   
 | `gps_thresh` | float\| None | Radius in metres used to decide when a global waypoint is*reached*. When provided, internal latitude/longitude deltas (`lat_thresh`, `lon_thresh`) are calculated from the current GPS home position. If not provided will base the gps_tresh of the current config WPNAV_RADIUS + 0.5 m |
 | `GCS`         | bool          | If true, zenmav will relay the mavlink connection to tcp connexions provided in the `tcp_ports` list     
-| `tcp_ports`         | list          | Ports numbers where to relay the mavlink connexion defaults to only port 14551, but more can be added if needed. Hence the ip ports are of type 'tcp:127.0.0.1:port_number'.                                                                                                                   |
+| `tcp_ports`         | list          | Ports numbers where to relay the mavlink connexion defaults to only port 14551, but more can be added if needed. Hence the ip ports are of type 'tcp:127.0.0.1:port_number'.    
+| `boundary_path`         | str          | Path of the integrated limit/ soft fence system implemented in zenmav. This fence system is NOT meant to replace ardupilot's internal fence system and is much less safer and reliable. This fence system is an option to trigger custom actions and/or functions needed in testing. For example, it can brake or RTL when hittin the fence, but could also juste update a state variable and some action could be taken (like killing a node, or starting one). The config file is a .toml file, of format documented in the docs folders. Is it meant to be very easy to implement and easy to change location, configuration or drone.                                                                                                             |
 
 `self.home` is stored as the aircraft’s current global
 position and is reused by `convert_to_global`.
