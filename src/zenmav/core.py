@@ -909,19 +909,15 @@ class wp:
             if '.' in s:
                 decimals =  len(s.split('.')[1].rstrip('0'))  # ignores trailing zeros
                 self.local = False if decimals > 4 else True
- 
 
-        if self.lat = None:
-            self.N = N
-            self.E = E
-            self.D = D
-            self.local = True
+        if self.local:
+            self.N = x
+            self.E = y
+            self.D = z
         else:
-            self.lat = lat
-            self.lon = lon
-            self.alt = alt
-            self.local = False
-
+            self.lat = x
+            self.lon = y
+            self.alt = z
 
 
 class wp_speed:
