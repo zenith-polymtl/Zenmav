@@ -62,7 +62,7 @@ Fly to an **absolute GPS waypoint**.
 - `acceptance_radius`: ignored when `gps_thresh` was supplied at construction;
   Provide gps_thresh under all conditions, default is autopilot value + 0.5 m
 - `while_moving`: optional callback executed every loop iteration.
-- `wait_to_reach`: if `False`, the call is asynchronous.
+- `wait_to_reach`: if `False`, the call is sent but non-blocking.
 
 ---
 
@@ -73,7 +73,7 @@ Move to a **local NED** position (metres) relative to home.
 - `wp`: list `[North, East, Down]` (*Down* is positive).
 - `turn_into_wp`: if `True`, the craft yaws toward the target while travelling.
 - `while_moving`: optional callback executed every loop iteration.
-
+- `wait_to_reach`: if `False`, the call is sent but non-blocking.
 Blocks until the position is reached within `acceptance_radius` [m].
 
 ---

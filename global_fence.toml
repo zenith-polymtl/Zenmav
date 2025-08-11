@@ -1,0 +1,18 @@
+version = 1
+name    = "Test Site A"
+frame   = "global"                  # global | local
+margin  = 5.0
+action = "rtl"                       # meters (pre-breach buffer)
+
+[z]
+min = 10.0                          # meters AMSL/AGL (interpretation up to usage), useless as of now
+max = 120.0
+
+[[regions]]
+kind   = "include-polygon"
+latlon = [
+  [45.1, -73.15],
+  [45.13, -73.15],
+  [45.13, -73.10],
+  [45.1, -73.10]
+]

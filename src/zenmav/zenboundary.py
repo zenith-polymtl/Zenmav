@@ -1,12 +1,7 @@
 from __future__ import annotations
-from pymavlink import mavutil
-import time
-import numpy as np
-from geopy.distance import distance
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Literal, Dict, Any, Union
 from pathlib import Path
-from geopy.distance import geodesic
 from shapely.geometry import Point, Polygon
 from shapely.prepared import prep
 from pyproj import Transformer
@@ -18,23 +13,25 @@ except ModuleNotFoundError:
     import tomli as tomllib  # Python 3.10 fallback
 
 LatLon = Tuple[float, float]
-XY     = Tuple[float, float]
+XY = Tuple[float, float]
+
 
 @dataclass
 class PolygonRegion:
     include: Literal[True] = True
-    frame:   Literal["global","local"] = "global"
-    latlon: Optional[List[LatLon]] = None   # used when frame == "global"
-    points: Optional[List[XY]] = None       # used when frame == "local"
+    frame: Literal["global", "local"] = "global"
+    latlon: Optional[List[LatLon]] = None  # used when frame == "global"
+    points: Optional[List[XY]] = None  # used when frame == "local"
+
 
 @dataclass
 class FenceSpec:
     version: int
     name: Optional[str] = None
-    frame: Literal["global","local"] = "global"
-    origin: Union[str, Tuple[float,float,float], None] = None
+    frame: Literal["global", "local"] = "global"
+    origin: Union[str, Tuple[float, float, float], None] = None
     margin_m: float = 0.0
-    action:str = "brake"  # "brake" or "rtl"
+    action: str = "brake"  # "brake" or "rtl"
     z_min_m: Optional[float] = None
     z_max_m: Optional[float] = None
     regions: List[PolygonRegion] = field(default_factory=list)
@@ -42,9 +39,13 @@ class FenceSpec:
     def validate(self) -> None:
         if self.version != 1:
             raise ValueError(f"Unsupported fence version: {self.version}")
-        if self.frame not in ("global","local"):
+        if self.frame not in ("global", "local"):
             raise ValueError(f"frame must be 'global' or 'local', got {self.frame}")
-        if self.z_min_m is not None and self.z_max_m is not None and self.z_min_m > self.z_max_m:
+        if (
+            self.z_min_m is not None
+            and self.z_max_m is not None
+            and self.z_min_m > self.z_max_m
+        ):
             raise ValueError(f"z.min ({self.z_min_m}) > z.max ({self.z_max_m})")
         if not self.regions:
             raise ValueError("at least one region is required")
@@ -52,7 +53,9 @@ class FenceSpec:
             if r.frame != self.frame:
                 raise ValueError("all regions must match top-level frame")
             if r.latlon is None and r.points is None:
-                raise ValueError("region must define 'latlon' (global) or 'points' (local)")
+                raise ValueError(
+                    "region must define 'latlon' (global) or 'points' (local)"
+                )
             pts = r.latlon if self.frame == "global" else r.points
             if not pts or len(pts) < 3:
                 raise ValueError("polygon must have at least 3 vertices")
@@ -62,6 +65,7 @@ class FenceSpec:
                     if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
                         raise ValueError(f"invalid lat/lon: {lat}, {lon}")
 
+
 def _as_float(x: Any, keypath: str) -> Optional[float]:
     if x is None:
         return None
@@ -70,18 +74,19 @@ def _as_float(x: Any, keypath: str) -> Optional[float]:
     except Exception as e:
         raise ValueError(f"'{keypath}' must be a number, got {x!r}") from e
 
+
 def load_fence_toml(path: str | Path) -> FenceSpec:
     """Load and validate a v1 fence TOML."""
     p = Path(path)
     data = tomllib.loads(p.read_text(encoding="utf-8"))
 
     version = int(data.get("version", 1))
-    name    = data.get("name")
-    frame   = str(data.get("frame", "global")).lower()
+    name = data.get("name")
+    frame = str(data.get("frame", "global")).lower()
 
     margin_m = _as_float(data.get("margin", 0.0), "margin")
 
-    action = str(data.get("action","brake")).lower()
+    action = str(data.get("action", "brake")).lower()
 
     ztbl = data.get("z", {})
     z_min_m = _as_float(ztbl.get("min"), "z.min") if isinstance(ztbl, dict) else None
@@ -90,19 +95,25 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
     regions_raw = data.get("regions", [])
     regions: List[PolygonRegion] = []
     for i, r in enumerate(regions_raw, start=1):
-        kind = str(r.get("kind","")).lower()
+        kind = str(r.get("kind", "")).lower()
         if kind != "include-polygon":
-            raise ValueError(f"regions[{i}] kind must be 'include-polygon' in v1, got {kind!r}")
+            raise ValueError(
+                f"regions[{i}] kind must be 'include-polygon' in v1, got {kind!r}"
+            )
         reg = PolygonRegion(include=True, frame=frame)
         if frame == "global":
             ll = r.get("latlon")
             if not isinstance(ll, list):
-                raise ValueError(f"regions[{i}] must define 'latlon' list for frame=global")
+                raise ValueError(
+                    f"regions[{i}] must define 'latlon' list for frame=global"
+                )
             reg.latlon = [(float(a), float(b)) for a, b in ll]
         else:  # local
             pts = r.get("points")
             if not isinstance(pts, list):
-                raise ValueError(f"regions[{i}] must define 'points' list for frame=local")
+                raise ValueError(
+                    f"regions[{i}] must define 'points' list for frame=local"
+                )
             reg.points = [(float(x), float(y)) for x, y in pts]
         regions.append(reg)
 
@@ -112,18 +123,19 @@ def load_fence_toml(path: str | Path) -> FenceSpec:
         frame=frame,
         margin_m=float(margin_m),
         action=action,
-        z_min_m=z_min_m, z_max_m=z_max_m,
+        z_min_m=z_min_m,
+        z_max_m=z_max_m,
         regions=regions,
     )
     spec.validate()
     return spec
 
 
-class Fence():
-    def __init__(self, drone, config_path):
+class Limits:
+    def __init__(self, drone, config_path, check_interval=0.25):
         """
         Initialize a fence with a center point and radius.
-        
+
         Args:
             lat (float): Latitude of the center point in degrees.
             lon (float): Longitude of the center point in degrees.
@@ -136,23 +148,27 @@ class Fence():
         self.fence_spec = load_fence_toml(config_path)
 
         if self.fence_spec.frame == "global":
-            poly_ll = self.fence_spec.regions[0].latlon   # list[(lat,lon)]
+            poly_ll = self.fence_spec.regions[0].latlon  # list[(lat,lon)]
             self.prepared, self.transformer = self.build_fence_global(
                 poly_ll, margin_m=self.fence_spec.margin_m
             )
         else:
-            poly_xy = self.fence_spec.regions[0].points   # list[(x,y)] meters
+            poly_xy = self.fence_spec.regions[0].points  # list[(x,y)] meters
             self.prepared, self.transformer = self.build_fence_local(
                 poly_xy, margin_m=self.fence_spec.margin_m
             )
 
         if self.fence_spec.frame == "global":
-            print(f"Loaded fence spec: {self.fence_spec.regions[0].latlon}, {self.fence_spec.regions[0].frame}")
+            print(
+                f"Loaded fence spec: {self.fence_spec.regions[0].latlon}, {self.fence_spec.regions[0].frame}"
+            )
         else:
-            print(f"Loaded fence spec: {self.fence_spec.regions[0].points}, {self.fence_spec.regions[0].frame}")
+            print(
+                f"Loaded fence spec: {self.fence_spec.regions[0].points}, {self.fence_spec.regions[0].frame}"
+            )
 
-        self.start_breach_monitor(period=0.5)
-    
+        self.start_breach_monitor(period=check_interval)
+
     def start_breach_monitor(self, period: float = 1.0):
         if getattr(self, "_breach_thread", None) and self._breach_thread.is_alive():
             return  # already running
@@ -166,9 +182,12 @@ class Fence():
         if getattr(self, "_breach_stop", None):
             self._breach_stop.set()
         # Only join if we’re NOT the breach thread
-        if getattr(self, "_breach_thread", None) and threading.current_thread() is not self._breach_thread:
+        if (
+            getattr(self, "_breach_thread", None)
+            and threading.current_thread() is not self._breach_thread
+        ):
             self._breach_thread.join(timeout=timeout)
-    
+
     def breach_action(self):
         if self.fence_spec.action == "brake":
             print("Executing fence breach action: BRAKE")
@@ -178,7 +197,7 @@ class Fence():
             self.drone.set_mode("RTL")
         else:
             print(f"Unknown fence action: {self.fence_spec.action}")
-        
+
         self.stop_breach_monitor()
 
     def _breach_loop(self, period: float):
@@ -208,14 +227,16 @@ class Fence():
         # Mean point of zone as center of UTM projection
         latc = sum(lat for lat, _ in polygon_ll) / len(polygon_ll)
         lonc = sum(lon for _, lon in polygon_ll) / len(polygon_ll)
-        transformer = Transformer.from_crs("EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True)
+        transformer = Transformer.from_crs(
+            "EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True
+        )
 
         # project polygon to meters (x=Easting, y=Northing)
         poly_xy = Polygon([transformer.transform(lon, lat) for lat, lon in polygon_ll])
         if margin_m:
             poly_xy = poly_xy.buffer(-float(margin_m))  # negative = shrink inward
         return prep(poly_xy), transformer
-    
+
     def build_fence_local(self, polygon_xy, margin_m: float = 0.0):
         """polygon_xy: list[(x=East, y=North), ...] in meters"""
         poly = Polygon([(e, n) for (n, e) in polygon_xy])
@@ -226,7 +247,9 @@ class Fence():
 
         latc = self.home[0]
         lonc = self.home[1]
-        transformer = Transformer.from_crs("EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True)
+        transformer = Transformer.from_crs(
+            "EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True
+        )
         self.origin_xy = transformer.transform(lonc, latc)
         return prep(poly), transformer  # no transformer needed
 

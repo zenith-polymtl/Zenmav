@@ -18,6 +18,9 @@ dependencies = [
   "pymavlink",
   "geopy",
   "numpy",
+  "tomli",
+  "shapely",
+  "pyproj"
 ]
 license = "Apache 2.0"
 license-files = ["LICEN[CS]E*"]
