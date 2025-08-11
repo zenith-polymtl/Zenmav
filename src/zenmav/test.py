@@ -1,7 +1,16 @@
 from core import Zenmav
 
-drone = Zenmav(boundary_path="global_fence.toml")
-drone.set_mode("GUIDED")  # Set mode to GUIDED for fence checks
-drone.arm()
-drone.takeoff(20)  # Take off to 20 meters
-drone.local_target([4000,0,-20])  # Move to a point outside the fence
+drone = Zenmav('tcp:127.0.0.1:5762')
+#Use 'udp:127.0.0.1:14550' for SITL in gazebo instead of tcp
+#It works with tuples I tried it out just now but lists are more robust in the long haul because tuples are immutable
+waypoints = [
+        (10, 0, -10), 
+        (10, 10, -10),  
+        (0, 10, -10),   
+        (0, 0, -10)    
+    ]
+
+drone.guided_arm_takeoff(10)
+for waypoint in waypoints:
+    drone.local_target(waypoint)
+print("Mission complete")
