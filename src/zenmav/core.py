@@ -897,3 +897,45 @@ class battery:
     def __init__(self, voltage: float, current: float):
         self.voltage = voltage
         self.current = current
+
+class wp:
+    def __init__(x, y, z, frame = None):
+        if frame = "local":
+            self.local = True
+        elif frame = "global":
+            self.local = False
+        elif:
+            s = str(x)
+            if '.' in s:
+                decimals =  len(s.split('.')[1].rstrip('0'))  # ignores trailing zeros
+                self.local = False if decimals > 4 else True
+ 
+
+        if self.lat = None:
+            self.N = N
+            self.E = E
+            self.D = D
+            self.local = True
+        else:
+            self.lat = lat
+            self.lon = lon
+            self.alt = alt
+            self.local = False
+
+
+
+class wp_speed:
+    def __init(F, R, D):
+        self.F = F
+        self.R = R
+        self.D = D
+
+drone.local_target(wp_local(100,10,-50))
+
+drone.local_target([100,10,-50])
+
+'''
+if isinstance(obj, wp_local):
+    print("It's a wp_local object")
+elif isinstance(obj, list):
+    print("It's a list")'''

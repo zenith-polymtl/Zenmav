@@ -2,21 +2,31 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Zenmav is a lightweight Python wrapper that lets you write **five-line flight
-scripts** for ArduPilot-controlled drones in either SITL or real hardware.
+Zenmav is a lightweight Python wrapper that lets you write quick and simple scripts for ArduPilot-controlled drones in either SITL or real hardware.
 Developed by **Zenith Polytechnique Montréal**.
 
 ## Key Features
 
 - **Simplified Pymavlink Commands with Feedback** – one-line TCP/UDP connection with heartbeat check and easy mode change
-- **Precise Navigation**
+- **Precise Navigation and commands**
+  
   - Global GPS waypoints with user-defined accuracy
   - Local NED waypoints relative to home
   - Real-time body-frame speed control
+  - RC override commands
 - **Autonomous Area Scans**
-  - Spiral pattern
+  
   - Rectilinear/lawn-mower pattern
-- **Live Telemetry** – local position, global GPS, heading, RC channels
+  - Spiral pattern
+  - **Mavlink commands and utilities**
+  - Mode change
+  - Arming / disarming
+  - Takeoff
+  - RTL
+  - Reading and setting parameters
+  - **Mavlink connection relay system**
+  - UDP, TCP, and UDPCI mavlink relays for GCS applications and other scripts
+- **Live Telemetry** – local position, global GPS, heading, RC channels, battery voltage and current
 - **CSV Logging Utilities**
 
 ## Safety Disclaimer
@@ -33,7 +43,7 @@ Operate in a clear area, keep visual line-of-sight and have a manual RC transmit
 pip install zenmav
 ```
 
-SITL users only need MAVProxy running on port 5762 (default shown below).
+SITL users only need Ardupilot sitl running on port 5762 (default shown below). It it possible to use other AP's simulation like gazebo too. Make sure you enter the right ip when initializing Zenmav()
 
 ---
 
@@ -189,3 +199,4 @@ Upload with
 ``twine upload dist/*``
 
 Enter API Token (Currently only accessible by maintainer Colin Rousseau)
+
