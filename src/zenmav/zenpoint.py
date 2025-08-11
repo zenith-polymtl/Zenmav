@@ -38,11 +38,12 @@ class wp:
             ValueError: If `frame` is provided but not in allowed_frames.
         """
 
-        self.timestamp = hdg
-        self.hdg = timestamp
+        self.timestamp = timestamp
+        self.hdg = hdg
         self.allowed_frames = ["global", "local", "base_link"]
         self.name = name
-
+        self.coordinates = (x, y, z)
+        
         if frame == None:
             s = str(x)
             if "." not in s:
@@ -52,7 +53,6 @@ class wp:
                 self.frame = "global" if decimals > 4 else "local"
         elif frame.lower() in self.allowed_frames:
             self.frame = frame
-            self.coordinates = (self.x, self.y, self.z)
         else:
             raise ValueError(
                 "Invalid frame type. Use 'global', 'local', or 'base_link'."

@@ -38,7 +38,7 @@ class Zenmav:
                         f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}."
                     )
         self.home = self.get_global_pos()
-        ref_point = Point(self.home[0], self.home[1])
+        ref_point = Point(self.home.lat, self.home.lon)
         point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
         self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
 
@@ -173,14 +173,10 @@ class Zenmav:
             0,  # No yaw or yaw rate
         )
 
-
-
-
-
         if wait_to_reach:
             # Wait for the waypoint to be reached
             print("Waiting for waypoint to be reached...")
-            while not self.is_near_waypoint(self.get_global_pos(), waypoint, gps=True):
+            while not self.is_near_waypoint(self.get_global_pos(), waypoint):
                 if while_moving is not None:
                     while_moving()
                 else:
@@ -190,7 +186,7 @@ class Zenmav:
     
     def convert_to_global(self, local_pos: list, reference_point: list = None):
         if reference_point is None:
-            reference_point = self.home
+            reference_point = self.home.lat, self.home.lon
         """Converts local NED coordinates to global GPS coordinates.
 
         Args:
@@ -199,6 +195,8 @@ class Zenmav:
         Returns:
             tuple: Global GPS position (latitude, longitude, altitude).
         """
+        if isinstance(reference_point, wp):
+            reference_point = reference_point.lat, reference_point.lon
 
         point_north = distance(meters=local_pos.E).destination(reference_point, bearing=0)
         final_point = distance(meters=local_pos.N).destination(point_north, bearing=90)
@@ -212,7 +210,7 @@ class Zenmav:
 
     def local_target(
         self,
-        wayponit : wp,
+        waypoint : wp,
         acceptance_radius: float = 5.0,
         while_moving=None,
         turn_into_wp: bool = False,
@@ -235,7 +233,7 @@ class Zenmav:
         if turn_into_wp:
             actual_pos = self.get_local_pos()
             actual_x, actual_y = actual_pos[0], actual_pos[1]
-            yaw_angle = atan2(wp[0] - actual_x, wp[1] - actual_y)
+            yaw_angle = atan2(waypoint.N - actual_x, waypoint.E - actual_y)
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
@@ -243,9 +241,9 @@ class Zenmav:
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
             0b10011111000,  # Position mask
-            wp[0],
-            wp[1],
-            wp[2],  # X (North), Y (East), Z (Down)
+            waypoint.N,
+            waypoint.E,
+            waypoint.D,  # X (North), Y (East), Z (Down)
             0,
             0,
             0,  # No velocity
@@ -259,7 +257,7 @@ class Zenmav:
             # Wait for the waypoint to be reached
             print("Waiting for waypoint to be reached...")
             while not self.is_near_waypoint(
-                self.get_local_pos(), wp, threshold=acceptance_radius
+                self.get_local_pos(), waypoint, threshold=acceptance_radius
             ):
                 if while_moving is not None:
                     while_moving()
@@ -329,6 +327,8 @@ class Zenmav:
         Returns:
             bool: True if drone is close enough, False otherwise
         """
+        if not isinstance(actual, wp):
+            return abs(actual - target) < threshold
 
         if actual.frame == "global":
             return (abs(actual.lat - target.lat) <= self.lat_thresh) and (
@@ -387,27 +387,27 @@ class Zenmav:
         ):
             pass  # Discard old messages
 
-            # Fetch the current global position
-            while True:
-                msg = connection.recv_match(blocking=True)
-                if msg.get_type() == "GLOBAL_POSITION_INT":
+        # Fetch the current global position
+        while True:
+            msg = connection.recv_match(blocking=True)
+            if msg.get_type() == "GLOBAL_POSITION_INT":
 
-                    # Extract latitude, longitude, and relative altitude
-                    lat = msg.lat / 1e7  # Convert from int32 to degrees
-                    lon = msg.lon / 1e7  # Convert from int32 to degrees
-                    alt = (
-                        msg.relative_alt / 1000.0
-                    )  # Convert from mm to meters (relative altitude)
-                    hdg = msg.hdg / 100
+                # Extract latitude, longitude, and relative altitude
+                lat = msg.lat / 1e7  # Convert from int32 to degrees
+                lon = msg.lon / 1e7  # Convert from int32 to degrees
+                alt = (
+                    msg.relative_alt / 1000.0
+                )  # Convert from mm to meters (relative altitude)
+                hdg = msg.hdg / 100
 
-                    # print(f"Position: Lat = {lat}°, Lon = {lon}°, Alt = {alt} meters, hdg = {hdg}")
-                    pos = wp(lat, lon, alt, frame = "global")
-                    if heading:
-                        pos.hdg = hdg
-                    if time_tag:
-                        pos.timestamp
+                # print(f"Position: Lat = {lat}°, Lon = {lon}°, Alt = {alt} meters, hdg = {hdg}")
+                pos = wp(lat, lon, alt, frame = "global")
+                if heading:
+                    pos.hdg = hdg
+                if time_tag:
+                    pos.timestamp
 
-                    return pos
+                return pos
 
     def get_rc_value(self, channel: int):
         """
