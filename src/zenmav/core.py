@@ -30,7 +30,7 @@ class Zenmav:
         self.connect(ip, baud)
         nav_thresh = self.get_param("WPNAV_RADIUS") / 100
         if self.gps_thresh is None:
-            self.gps_threst = nav_thresh + 0.5
+            self.gps_thresh = nav_thresh + 0.5
         else:
             if nav_thresh > self.gps_thresh:
                 while True:
@@ -151,7 +151,8 @@ class Zenmav:
         print(waypoint.coordinates)
 
         if waypoint.frame == "local":
-            waypoint = self.convert_to_global(waypoint, self.get_global_pos())
+            print('local frame, converting to global')
+            waypoint = self.convert_to_global(waypoint, self.home)
         
         # Send a MAVLink command to set the target global position
         connection.mav.set_position_target_global_int_send(
@@ -162,7 +163,7 @@ class Zenmav:
             0b100111111000,  # Position mask
             int(waypoint.lat * 1e7),  # Latitude in degrees * 1e7
             int(waypoint.lon * 1e7),  # Longitude in degrees * 1e7
-            waypoint.lat,  # Altitude in meters (relative to home)
+            waypoint.alt,  # Altitude in meters (relative to home)
             0,
             0,
             0,  # No velocity set
@@ -198,8 +199,8 @@ class Zenmav:
         if isinstance(reference_point, wp):
             reference_point = reference_point.lat, reference_point.lon
 
-        point_north = distance(meters=local_pos.E).destination(reference_point, bearing=0)
-        final_point = distance(meters=local_pos.N).destination(point_north, bearing=90)
+        point_north = distance(meters=local_pos.N).destination(reference_point, bearing=0)
+        final_point = distance(meters=local_pos.E).destination(point_north, bearing=90)
         local_pos.lat = final_point.latitude
         local_pos.lon = final_point.longitude
         local_pos.alt = -local_pos.D
@@ -233,7 +234,7 @@ class Zenmav:
         if turn_into_wp:
             actual_pos = self.get_local_pos()
             actual_x, actual_y = actual_pos[0], actual_pos[1]
-            yaw_angle = atan2(waypoint.N - actual_x, waypoint.E - actual_y)
+            yaw_angle = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
@@ -627,7 +628,7 @@ class Zenmav:
             0,
         )
 
-        while self.get_global_pos.alt > 1.0:
+        while self.get_global_pos().alt > 1.0:
             if while_moving is not None:
                 while_moving()
             else:
@@ -711,7 +712,7 @@ class Zenmav:
 
         for i in range(len(x_spiral)):
             waypoint = wp(x_spiral[i], y_spiral[i], -altitude, frame = "local")
-            self.global_target(waypoint, acceptance_radius=10)
+            self.global_target(waypoint)
 
         total_time = time.time() - start_time
         print("SCAN FINISHED")

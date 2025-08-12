@@ -11,8 +11,8 @@ waypoints = [
         wp(0, 0, -10)    
     ]
 
-drone.guided_arm_takeoff(10)
 for waypoint in waypoints:
+    
     waypoint.frame = "local"
     drone.global_target(waypoint)
 print("Mission complete")
