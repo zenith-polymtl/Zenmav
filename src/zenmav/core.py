@@ -30,7 +30,7 @@ class Zenmav:
         self.connect(ip, baud)
         nav_thresh = self.get_param("WPNAV_RADIUS") / 100
         if self.gps_thresh is None:
-            self.gps_thresh = nav_thresh + 0.5
+            self.gps_thresh = nav_thresh + 1.0
         else:
             if nav_thresh > self.gps_thresh:
                 while True:
