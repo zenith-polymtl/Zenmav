@@ -1,12 +1,16 @@
+
 from core import Zenmav
-from zenpoint import wp
-
-drone = Zenmav('tcp:127.0.0.1:5762')
-
-drone.guided_arm_takeoff()
-
 import time
+drone = Zenmav(gps_thresh=0.5)
+drone.guided_arm_takeoff(100)
+
+
+
+drone.set_mode('ACRO')
+finisheed = False
 start_time = time.time()
-while time.time()-start_time<20:
-    drone.speed_target((1,0,-1), yaw_rate=4)
-drone.RTL()
+if time.time()- start_time < 3:
+    drone.rc_override({'ch3': 1600})
+elif not finisheed:
+    drone.set_mode('GUIDED')
+    finished = True

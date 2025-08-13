@@ -71,3 +71,13 @@ class wp:
             self.R = y
             self.D = z
 
+    def copy(self):
+        return wp(
+            self.coordinates[0],
+            self.coordinates[1],
+            self.coordinates[2],
+            frame=self.frame,
+            hdg=self.hdg,
+            timestamp=self.timestamp,
+            name=self.name
+        )
