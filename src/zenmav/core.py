@@ -281,18 +281,8 @@ class Zenmav:
         if isinstance(waypoint, (list, tuple)):
             waypoint = wp(waypoint[0],waypoint[1],waypoint[2], frame = 'base_link')
         else:
-            if waypoint.frame == "local":
-                print("Watch out! Local frame passed for speed command which is in base_link")
-                print("Assuming Error, will convert to FRD, but base_link should be specified to avoid confusion")
-                waypoint.F = waypoint.N
-                waypoint.R = waypoint.E
-                waypoint.D = waypoint.D
-            elif waypoint.frame == "global":
-                print("Watch out! Global frame passed for speed command which is in base_link")
-                print("Assuming Error, Will convert to FRD, but base_link should be specified to avoid confusion")
-                waypoint.F = waypoint.lat
-                waypoint.R = waypoint.lon
-                waypoint.D = waypoint.alt
+            if waypoint.frame == "local" or waypoint.frame == "global":
+                raise(ValueError)
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
@@ -560,7 +550,7 @@ class Zenmav:
         connection.motors_armed_wait()
         print("Motors armed!")
 
-    def takeoff(self, altitude: float = 10.0, while_moving=None):
+    def takeoff(self, altitude: float = 10.0, threshold = 2, while_moving=None):
         """Makes the drone take off. Requires 'GUIDED' mode, and the drone to be armed.
 
         Args:
@@ -569,6 +559,9 @@ class Zenmav:
         """
         # Takeoff
         connection = self.connection
+        self.home = self.get_global_pos()
+        above_home = self.home.copy()
+        above_home.alt += altitude
 
         print(f"Taking off to {altitude} meters...")
         connection.mav.command_long_send(
@@ -585,11 +578,14 @@ class Zenmav:
             altitude,
         )
         print("Waiting for takeoff...")
-        while self.is_near_waypoint(self.get_global_pos().alt, altitude) == False:
+        while self.is_near_waypoint(self.get_global_pos().alt, altitude, threshold=threshold) == False:
             if while_moving is not None:
                 while_moving()
             else:
                 pass
+        
+        self.global_target(above_home) #Ensure the drone starts directly above takeoff point
+
 
     def guided_arm_takeoff(self, height: float = 20.0):
         """Allows quick connection, arming the drone and taking off
@@ -832,6 +828,19 @@ class Zenmav:
             return battery(
                 sys_status.voltage_battery / 1000.0, sys_status.current_battery / 100.0
             )  # Convert to volts and amps
+        
+    def get_attitude(self):
+
+        self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, freq_hz=100)
+
+        while self.connection.recv_match(type="ATTITUDE", blocking=False, timeout=2):
+            pass
+
+        attitude = self.connection.recv_match(
+            type="ATTITUDE", blocking=True, timeout=2
+        )
+        if attitude:
+            return (attitude.roll, attitude.pitch, attitude.yaw)
 
     def rc_override(self, channel_values: dict):
         """
