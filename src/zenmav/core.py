@@ -741,8 +741,6 @@ class Zenmav:
         else:
             pos = center
 
-        global_pos = self.convert_to_global(pos)
-
         e = detection_width
         radius = scan_radius
         safety_margin = 0

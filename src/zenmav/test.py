@@ -1,12 +1,5 @@
-from core import Zenmav
-from zenpoint import wp
+from zenmav.core import Zenmav
 
-drone = Zenmav('tcp:127.0.0.1:5762')
+drone = Zenmav('udp:127.0.0.1:14553')
 
-drone.guided_arm_takeoff()
-
-import time
-start_time = time.time()
-while time.time()-start_time<20:
-    drone.speed_target((1,0,-1), yaw_rate=4)
-drone.RTL()
+input('PRESS ENTER WHEN ARMED AND GUIDED')
