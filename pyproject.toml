@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "zenmav"
-version = "0.0.10"
+version = "0.1.0"
 authors = [
   { name="Colin Rousseau", email="colin.rousseau@polymtl.ca" },
 ]
