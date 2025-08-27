@@ -7,8 +7,8 @@ from geopy.distance import distance
 from geopy import Point
 import threading
 import select
-from zenboundary import Limits
-from zenpoint import wp
+from .zenboundary import Limits
+from .zenpoint import wp
 
 class Zenmav:
     def __init__(
