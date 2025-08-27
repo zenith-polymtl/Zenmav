@@ -120,13 +120,15 @@ class Zenmav:
         Returns:
             None
         """
-
+        port = ip_address.rsplit(':', 1)[1]
+        source_system_id = int(port)%255
+        print(f"System ID : {source_system_id}")
         # Create the self.connection
         # Establish connection to MAVLink
         if baud is not None:
-            self.connection = mavutil.mavlink_connection(ip_address, baud=baud)
+            self.connection = mavutil.mavlink_connection(ip_address, baud=baud, source_system=source_system_id)
         else:
-            self.connection = mavutil.mavlink_connection(ip_address)
+            self.connection = mavutil.mavlink_connection(ip_address, source_system=source_system_id)
         print("Waiting for heartbeat...")
         self.connection.mav.heartbeat_send(
             mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0
@@ -134,7 +136,7 @@ class Zenmav:
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
 
-    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True):
+    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True, heading = 0):
         """Sends a movement command to the drone for a specific global GPS coordinate.
 
         Args:
@@ -160,7 +162,7 @@ class Zenmav:
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,  # Global frame with relative altitude
-            0b100111111000,  # Position mask
+            0b11011111000,  # Position mask
             int(waypoint.lat * 1e7),  # Latitude in degrees * 1e7
             int(waypoint.lon * 1e7),  # Longitude in degrees * 1e7
             waypoint.alt,  # Altitude in meters (relative to home)
@@ -170,7 +172,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration set
-            0,
+            heading,
             0,  # No yaw or yaw rate
         )
 
@@ -216,6 +218,7 @@ class Zenmav:
         while_moving=None,
         turn_into_wp: bool = False,
         wait_to_reach: bool = True,
+        heading = 0
     ):
         """Allows easy sending of a drone movement command to local coordinates in NED system.
 
@@ -230,7 +233,7 @@ class Zenmav:
 
         connection = self.connection
 
-        yaw_angle = 0
+        yaw_angle = heading
         if turn_into_wp:
             actual_pos = self.get_local_pos()
             actual_x, actual_y = actual_pos[0], actual_pos[1]
@@ -439,14 +442,16 @@ class Zenmav:
         Returns:
             float: The value of the requested parameter.
         """
-        self.connection.param_fetch_one(param_name)
-        print(f"Requesting parameter: {param_name}")
-        # Wait for the parameter response
-        msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
-        if msg and msg.param_id == param_name:
-            param_value = msg.param_value
-            print(f"Parameter {param_name}: {param_value}")
-            return param_value
+        while True:
+            self.connection.param_fetch_one(param_name)
+            print(f"Requesting parameter: {param_name}")
+            # Wait for the parameter response
+            msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
+            if msg and msg.param_id == param_name:
+                param_value = msg.param_value
+                print(f"Parameter {param_name}: {param_value}")
+                if param_value != None:
+                    return param_value
 
     def set_param(self, param_name: str, value: float):
         """Sets a specific parameter on the drone.

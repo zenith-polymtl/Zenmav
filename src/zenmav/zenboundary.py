@@ -245,8 +245,8 @@ class Limits:
             if not shrunk.is_empty:
                 poly = shrunk
 
-        latc = self.home[0]
-        lonc = self.home[1]
+        latc = self.home.lat
+        lonc = self.home.lon
         transformer = Transformer.from_crs(
             "EPSG:4326", self._utm_crs_from_lonlat(lonc, latc), always_xy=True
         )
@@ -261,7 +261,7 @@ class Limits:
         frame: "global" if point is lat/lon, "local" if point is N/E in meters
         """
         if frame == "global":
-            lat, lon = float(point[0]), float(point[1])
+            lat, lon = float(point.lat), float(point.lon)
             xg, yg = self.transformer.transform(lon, lat)
 
             # NEW: if fence is local, express the point in local NED meters by subtracting origin
@@ -272,7 +272,7 @@ class Limits:
                 x, y = xg, yg
         else:
             # Local NED point: map (N,E) -> (y,x)
-            n, e = float(point[0]), float(point[1])
+            n, e = float(point.N), float(point.E)
             x, y = e, n
 
         return self.prepared.context.covers(Point(x, y))
