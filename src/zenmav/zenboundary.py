@@ -194,7 +194,7 @@ class Limits:
             self.drone.set_mode("BRAKE")
         elif self.fence_spec.action == "rtl":
             print("Executing fence breach action: RTL")
-            self.drone.set_mode("RTL")
+            self.drone.RTL()
         else:
             print(f"Unknown fence action: {self.fence_spec.action}")
 

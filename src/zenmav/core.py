@@ -169,7 +169,7 @@ class Zenmav:
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
 
-    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True, heading = 0):
+    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True, heading = None):
         """Sends a movement command to the drone for a specific global GPS coordinate.
 
         Args:
@@ -188,6 +188,9 @@ class Zenmav:
         if waypoint.frame == "local":
             print('local frame, converting to global')
             waypoint = self.convert_to_global(waypoint, self.home)
+
+        mask = 0b11011111000 if heading is not None else 0b11111111000
+
         
         # Send a MAVLink command to set the target global position
         connection.mav.set_position_target_global_int_send(
@@ -195,7 +198,7 @@ class Zenmav:
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,  # Global frame with relative altitude
-            0b11011111000,  # Position mask
+            mask,  # Position mask
             int(waypoint.lat * 1e7),  # Latitude in degrees * 1e7
             int(waypoint.lon * 1e7),  # Longitude in degrees * 1e7
             waypoint.alt,  # Altitude in meters (relative to home)
@@ -251,7 +254,7 @@ class Zenmav:
         while_moving=None,
         turn_into_wp: bool = False,
         wait_to_reach: bool = True,
-        heading = 0
+        heading = None
     ):
         """Allows easy sending of a drone movement command to local coordinates in NED system.
 
@@ -272,12 +275,14 @@ class Zenmav:
             actual_x, actual_y = actual_pos[0], actual_pos[1]
             yaw_angle = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
 
+        mask = 0b11011111000 if heading is not None else 0b11111111000
+
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b10011111000,  # Position mask
+            mask,  # Position mask
             waypoint.N,
             waypoint.E,
             waypoint.D,  # X (North), Y (East), Z (Down)
