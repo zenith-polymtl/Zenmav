@@ -276,3 +276,131 @@ class Limits:
             x, y = e, n
 
         return self.prepared.context.covers(Point(x, y))
+    
+    def visualize(
+            self,
+            *,
+            ax=None,
+            show=True,
+            plot_home=True,
+            plot_drone=True,
+            title=None,
+            save_path: str | None = None,
+            fill_alpha: float = 0.10,
+            line_width: float = 2.0,
+        ):
+            """
+            Visualize the fence polygon in meters (Easting vs Northing).
+            Works for both frame='global' (projected to UTM) and frame='local' (meters relative to home).
+
+            Args:
+                ax: existing matplotlib Axes to draw on (optional).
+                show: call plt.show() at the end if True.
+                plot_home: draw the home position.
+                plot_drone: draw the current drone position (lat/lon converted to the plot frame).
+                title: title for the plot (optional).
+                save_path: if provided, saves the figure to this path.
+                fill_alpha: polygon face alpha.
+                line_width: polygon edge width.
+
+            Returns:
+                matplotlib.axes.Axes
+            """
+            try:
+                import matplotlib.pyplot as plt
+            except ImportError as e:
+                raise RuntimeError(
+                    "matplotlib is required for Limits.visualize(). Install with `pip install matplotlib`."
+                ) from e
+
+            geom = self.prepared.context  # shapely geometry (Polygon or MultiPolygon)
+
+            created_fig = False
+            if ax is None:
+                fig, ax = plt.subplots(figsize=(6, 6))
+                created_fig = True
+
+            def _plot_polygon(poly):
+                x, y = poly.exterior.xy
+                ax.fill(x, y, alpha=fill_alpha)
+                ax.plot(x, y, linewidth=line_width)
+                # plot holes if any
+                for ring in poly.interiors:
+                    xi, yi = ring.xy
+                    ax.plot(xi, yi, linewidth=line_width * 0.8, linestyle="--")
+
+            # Handle both Polygon and MultiPolygon
+            if geom.geom_type == "Polygon":
+                _plot_polygon(geom)
+            elif geom.geom_type == "MultiPolygon":
+                for g in geom.geoms:
+                    _plot_polygon(g)
+            else:
+                raise ValueError(f"Unsupported geometry type for visualization: {geom.geom_type}")
+
+            # Axes labels & aspect
+            if self.fence_spec.frame == "global":
+                # Projected UTM meters
+                ax.set_xlabel("Easting (m)")
+                ax.set_ylabel("Northing (m)")
+                # Try to infer UTM zone from the EPSG code we built
+                try:
+                    # self.transformer probably created from EPSG:326xx/327xx
+                    epsg = getattr(self.transformer, "target_crs", None)
+                    if epsg:
+                        ax.set_title(title or f"Fence (Global / UTM: {epsg.to_string()})")
+                    else:
+                        ax.set_title(title or "Fence (Global / UTM meters)")
+                except Exception:
+                    ax.set_title(title or "Fence (Global / UTM meters)")
+            else:
+                # Local meters relative to home
+                ax.set_xlabel("East (m)")
+                ax.set_ylabel("North (m)")
+                ax.set_title(title or "Fence (Local meters, origin at HOME)")
+
+            # Plot HOME
+            if plot_home and hasattr(self, "home") and self.home is not None:
+                if self.fence_spec.frame == "global":
+                    hx, hy = self.transformer.transform(self.home.lon, self.home.lat)
+                else:
+                    # local: (0,0) is home, by construction of the polygon
+                    hx, hy = 0.0, 0.0
+                ax.scatter([hx], [hy], marker="*", s=120, label="HOME")
+
+            # Plot current DRONE position
+            if plot_drone and getattr(self, "drone", None):
+                try:
+                    pos = self.drone.get_global_pos()
+                    gx, gy = self.transformer.transform(pos.lon, pos.lat)
+                    if self.fence_spec.frame == "local":
+                        # convert to local meters (subtract origin_xy)
+                        x0, y0 = self.origin_xy
+                        gx, gy = gx - x0, gy - y0
+                    ax.scatter([gx], [gy], marker="o", s=40, label="DRONE")
+                except Exception as e:
+                    # Non-fatal; keep the plot even if we can't fetch a live position
+                    print(f"[visualize] Could not plot drone position: {e}")
+
+            # Nice bounds and legend
+            minx, miny, maxx, maxy = geom.bounds
+            dx, dy = maxx - minx, maxy - miny
+            pad_x = 0.10 * dx if dx > 0 else 1.0
+            pad_y = 0.10 * dy if dy > 0 else 1.0
+            ax.set_xlim(minx - pad_x, maxx + pad_x)
+            ax.set_ylim(miny - pad_y, maxy + pad_y)
+            ax.set_aspect("equal", adjustable="box")
+
+            # Only add legend if we actually plotted points
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend(loc="best")
+
+            if save_path:
+                ax.figure.savefig(save_path, bbox_inches="tight", dpi=150)
+
+            if show and created_fig:
+                plt.show()
+
+            return ax
+

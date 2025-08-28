@@ -53,7 +53,7 @@ class Zenmav:
         self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
         if boundary_path is not None:
-            Limits(self, boundary_path, check_interval=0.25)
+            self.limits = Limits(self, boundary_path, check_interval=0.25)
         
         self.parms = mavparm.MAVParmDict() 
         print("Zenmav initialized")
