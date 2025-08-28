@@ -1,4 +1,4 @@
-from pymavlink import mavutil
+from pymavlink import mavutil, mavparm
 import time
 import numpy as np
 import csv
@@ -7,8 +7,10 @@ from geopy.distance import distance
 from geopy import Point
 import threading
 import select
-from .zenboundary import Limits
-from .zenpoint import wp
+'''from .zenboundary import Limits
+from .zenpoint import wp'''
+from zenboundary import Limits
+from zenpoint import wp
 
 class Zenmav:
     def __init__(
@@ -47,7 +49,8 @@ class Zenmav:
 
         if boundary_path is not None:
             Limits(self, boundary_path, check_interval=0.25)
-
+        
+        self.parms = mavparm.MAVParmDict() 
         print("Zenmav initialized")
 
     def split_connections(self, ip: str, tcp_ports: list):
@@ -432,40 +435,48 @@ class Zenmav:
                     else:
                         print(f"Channel {channel} not available in the message.")
                         return None
+                    
+    def get_param(self, param_name: str, max_retries=10):  
+        """Fetches a specific parameter from the drone."""  
+        for i in range(max_retries):  
+            self.connection.param_fetch_one(param_name)  
+            print(f"Requesting parameter: {param_name}")  
+            
+            msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)  
+            if msg and msg.param_id == param_name:  
+                param_value = msg.param_value  
+                print(f"Parameter {param_name}: {param_value}")  
+                if param_value is not None:  
+                    return param_value  
+        return None  
+  
+    def set_param(self, param_name: str, value: float, max_retries=5, parm_type=None):  
+        """Sets a specific parameter on the drone using MAVParmDict."""  
+        for i in range(max_retries):  
+            print(f"Setting parameter {param_name} to {value} (attempt {i + 1})")  
+                
+            # Use MAVParmDict.mavset() instead of basic param_set_send  
+            success = self.parms.mavset(self.connection, param_name, value,   
+                                        retries=1, parm_type=parm_type)  
+                
+            if success:  
+                # Verify the parameter was set correctly  
+                new_value = self.get_param(param_name, max_retries=3)  
+                if new_value is not None and round(new_value, 5) == round(value, 5):  
+                    print(f"Parameter {param_name} set to: {new_value}")  
+                    return True  
+                else:  
+                    print(f"Verification failed for {param_name}: got {new_value}, expected {value}")  
+                    time.sleep(0.02)  
+            else:  
+                print(f"Failed to set {param_name} on attempt {i + 1}")  
+                time.sleep(0.02)  
+            
+        print(f"Failed to set parameter {param_name} after {max_retries} attempts")  
+        return False
+                
+        
 
-    def get_param(self, param_name: str):
-        """Fetches a specific parameter from the drone.
-
-        Args:
-            param_name (str): The name of the parameter to fetch.
-
-        Returns:
-            float: The value of the requested parameter.
-        """
-        while True:
-            self.connection.param_fetch_one(param_name)
-            print(f"Requesting parameter: {param_name}")
-            # Wait for the parameter response
-            msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
-            if msg and msg.param_id == param_name:
-                param_value = msg.param_value
-                print(f"Parameter {param_name}: {param_value}")
-                if param_value != None:
-                    return param_value
-
-    def set_param(self, param_name: str, value: float):
-        """Sets a specific parameter on the drone.
-
-        Args:
-            param_name (str): The name of the parameter to set.
-            value (float): The value to set for the parameter.
-        """
-        print(f"Setting parameter {param_name} to {value}")
-        self.connection.param_set_send(param_name, value)
-        # Wait for confirmation
-        msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
-        if msg and msg.param_id == param_name:
-            print(f"Parameter {param_name} set to: {msg.param_value}")
 
     def message_request(self, message_type: str, freq_hz: int = 10):
         """Sends a message request to the drone, allowing reception of a specific message, received at a specific rate.
