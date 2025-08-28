@@ -189,7 +189,8 @@ class Zenmav:
             print('local frame, converting to global')
             waypoint = self.convert_to_global(waypoint, self.home)
 
-        mask = 0b11011111000 if heading is not None else 0b11111111000
+        mask = 0b11111111000 if heading is not None else 0b11011111000
+        yaw_angle = 0 if heading == None else heading
 
         
         # Send a MAVLink command to set the target global position
@@ -208,7 +209,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration set
-            heading,
+            yaw_angle,
             0,  # No yaw or yaw rate
         )
 
@@ -269,13 +270,12 @@ class Zenmav:
 
         connection = self.connection
 
-        yaw_angle = heading
+        mask = 0b10111111000 if heading is not None else 0b11111111000
+        yaw_angle = 0 if heading == None else heading
         if turn_into_wp:
             actual_pos = self.get_local_pos()
             actual_x, actual_y = actual_pos[0], actual_pos[1]
             yaw_angle = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
-
-        mask = 0b11011111000 if heading is not None else 0b11111111000
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
