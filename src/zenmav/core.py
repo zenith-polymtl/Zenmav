@@ -270,12 +270,20 @@ class Zenmav:
 
         connection = self.connection
 
-        mask = 0b10111111000 if heading is not None else 0b11111111000
-        yaw_angle = 0 if heading == None else heading
+        if heading == None and turn_into_wp == False:
+            mask = 0b11011111000
+            heading = 0
+        else:
+            mask =  0b1001111000
+            if not turn_into_wp:
+                heading *= 3.14159/180
+
+
+
         if turn_into_wp:
             actual_pos = self.get_local_pos()
-            actual_x, actual_y = actual_pos[0], actual_pos[1]
-            yaw_angle = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
+            actual_x, actual_y = actual_pos.N, actual_pos.E
+            heading = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
@@ -292,7 +300,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration
-            yaw_angle,
+            heading,
             0,  # No yaw or yaw rate
         )
         if wait_to_reach:
@@ -346,6 +354,26 @@ class Zenmav:
 
         # Wait for the waypoint to be reached
         print(f"Speed command of {waypoint.coordinates} m/s")
+
+    def yaw_target(self,yaw_angle, relative:bool = False):
+
+        while yaw_angle<0:
+            yaw_angle += 360
+        while yaw_angle > 360:
+            yaw_angle -= 360
+
+        self.connection.mav.command_long_send(  
+        self.connection.target_system,           # target_system  
+        self.connection.target_component,        # target_component  
+        mavutil.mavlink.MAV_CMD_CONDITION_YAW,  # command  
+        0,                                  # confirmation  
+        yaw_angle,                                 # param1: target angle (0-360 degrees, 0=north)  
+        45,                                 # param2: angular speed (deg/s)  
+        0,                                  # param3: direction (1=clockwise, -1=counter-clockwise)  
+        relative,                                  # param4: relative (0=absolute, 1=relative offset)  
+        0, 0, 0                            # param5-7: empty  
+        )
+
 
     def is_near_waypoint(
         self, actual: wp, target: wp, threshold: float = 2.0):
