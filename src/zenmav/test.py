@@ -1,12 +1,9 @@
 from core import Zenmav
 import time
-while True:
-    drone = Zenmav(GCS=True)
-    drone.set_mode('GUIDED')
-    time.sleep(0.5)
-    drone.set_mode('RTL')
-    time.sleep(0.2)
-    drone.close_all_connections()
-    input('')
+
+drone = Zenmav()
+drone.set_mode('GUIDED')
+drone.download_all_params()
+input('FINISEHD')
 
 

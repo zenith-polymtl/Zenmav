@@ -1,16 +1,20 @@
 from pymavlink import mavutil, mavparm
+from pymavlink.mavftp import MAVFTP 
 import time
 import numpy as np
 import csv
 from math import atan2
 from geopy.distance import distance
 from geopy import Point
+from datetime import datetime
 import threading
 import select
 '''from .zenboundary import Limits
 from .zenpoint import wp'''
 from zenboundary import Limits
 from zenpoint import wp
+
+
 
 class Zenmav:
     def __init__(
@@ -140,12 +144,17 @@ class Zenmav:
             ip_address (str, optional): IP address for connection.
                 Sitl simulation : 'tcp:127.0.0.1:5762' .
                 Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
-                Zenith Siyi connexion : 'udpout:192.168.144.12:19856'
+                Zenith Siyi connection : 'udpout:192.168.144.12:19856'
         Returns:
             None
         """
-        port = ip_address.rsplit(':', 1)[1]
-        source_system_id = int(port)%255
+        try:
+            port = ip_address.rsplit(':', 1)[1]
+            source_system_id = int(port)%255
+        except:
+            print('Non IP connection string')
+            source_system_id = np.random.randint(1,254)
+
         print(f"System ID : {source_system_id}")
         # Create the self.connection
         # Establish connection to MAVLink
@@ -496,7 +505,61 @@ class Zenmav:
         print(f"Failed to set parameter {param_name} after {max_retries} attempts")  
         return False
                 
+    def download_all_params(self):  
+        """Method to download parameters using traditional MAVLink messages"""   
         
+        # Request all parameters  
+        self.connection.param_fetch_all()  
+        
+        # Collect parameter responses  
+        params = {}  
+        param_count = None  
+        received_count = 0  
+        
+        print("Downloading parameters using traditional method...")  
+        
+        while True:  
+            msg = self.connection.recv_match(type='PARAM_VALUE', blocking=True, timeout=10)  
+            if msg is None:  
+                print(f"Timeout waiting for parameters. Received {received_count} parameters.")  
+                break  
+                
+            # Handle both string and bytes param_id  
+            if isinstance(msg.param_id, bytes):  
+                param_id = msg.param_id.decode('utf-8').rstrip('\x00')  
+            else:  
+                param_id = str(msg.param_id).rstrip('\x00')  
+                
+            params[param_id] = msg.param_value  
+            received_count += 1  
+            
+            if param_count is None:  
+                param_count = msg.param_count  
+                print(f"Expecting {param_count} parameters...")  
+            
+            print(f"Received parameter {received_count}/{param_count}: {param_id} = {msg.param_value}")  
+            
+            # Check if we've received all parameters  
+            if received_count >= param_count:  
+                break  
+        
+        # Save parameters to file  
+        now = datetime.now()  
+        datetime_string = now.strftime("%Y-%m-%d_%H-%M-%S")  
+        filename = f'Params_{datetime_string}.txt'  
+        
+        self._save_params_to_file(params, filename)  
+        print(f"Saved {len(params)} parameters to {filename}")
+    
+    def _save_params_to_file(self, params, filename):  
+        """Save parameters in Mission Planner compatible format"""  
+        with open(filename, 'w') as f:  
+            # Sort parameters alphabetically for consistency  
+            for param_name in sorted(params.keys()):  
+                value = params[param_name]  
+                # Mission Planner format: PARAM_NAME,value  
+                f.write(f"{param_name},{value:.6f}\n")  
+
 
 
     def message_request(self, message_type: str, freq_hz: int = 10):
@@ -672,6 +735,7 @@ class Zenmav:
 
             connection.close()
             print("Connection closed. Mission Finished")
+
     def close_all_connections(self):  
         """Close all connections including GCS connections"""  
         # Stop the forwarder thread first  
@@ -686,6 +750,7 @@ class Zenmav:
                     conn.close()  
                 except:  
                     pass
+
     def insert_coordinates_to_csv(self, file_path: str, waypoint: wp, description = True):
         """
         Inserts coordinates into a CSV file. If the file doesn't exist, it creates one with a header.
