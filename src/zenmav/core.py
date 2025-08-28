@@ -25,6 +25,7 @@ class Zenmav:
         """Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol."""
         self = self
         self.last_message_req = None
+        self._stop_forwarder = False  
         self.gps_thresh = gps_thresh  # GPS threshold in meters
         if GCS:
             ip = self.split_connections(ip, tcp_ports)
@@ -65,52 +66,72 @@ class Zenmav:
         ip = "tcp:127.0.0.1:14550"
         return ip
 
-    def message_forwarder(self):
-        while True:
-            # Separate UDP and TCP connections
-            udp_connections = [
-                conn for conn in self.connections if isinstance(conn, mavutil.mavudp)
-            ]
-            tcp_connections = [
-                conn
-                for conn in self.connections
-                if hasattr(conn, "fd") and conn.fd is not None
-            ]
-
-            # Handle TCP connections with select
-            if tcp_connections:
-                fd_to_conn = {conn.fd: conn for conn in tcp_connections}
-                ready_fds, _, _ = select.select(
-                    fd_to_conn.keys(), [], [], 0.01
-                )  # Short timeout
-                for fd in ready_fds:
-                    conn = fd_to_conn[fd]
-                    try:
-                        msg = conn.recv_match(blocking=False)
-                        if msg:
-                            buf = msg.get_msgbuf()
-                            for other in self.connections:
-                                if other is not conn:
-                                    other.write(buf)
-                    except (TypeError, AttributeError) as e:
-                        # Skip corrupted messages that cause state issues
-                        continue
-
-            if udp_connections:
-                # Handle UDP connections separately
-                for conn in udp_connections:
-                    try:
-                        msg = conn.recv_match(blocking=False)
-                        if msg:
-                            buf = msg.get_msgbuf()
-                            for other in self.connections:
-                                if other is not conn:
-                                    other.write(buf)
-                    except (TypeError, AttributeError) as e:
-                        # Skip corrupted messages that cause state issues
-                        continue
-
-                time.sleep(0.001)  # Small delay to prevent CPU spinning
+    def message_forwarder(self):  
+        while not self._stop_forwarder:  
+            # Separate UDP and TCP connections  
+            udp_connections = [  
+                conn for conn in self.connections if isinstance(conn, mavutil.mavudp)  
+            ]  
+            tcp_connections = [  
+                conn  
+                for conn in self.connections  
+                if hasattr(conn, "fd") and conn.fd is not None  
+            ]  
+    
+            # Handle TCP connections with select  
+            if tcp_connections:  
+                fd_to_conn = {conn.fd: conn for conn in tcp_connections}  
+                ready_fds, _, _ = select.select(  
+                    fd_to_conn.keys(), [], [], 0.01  
+                )  # Short timeout  
+                for fd in ready_fds:  
+                    conn = fd_to_conn[fd]  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            # Filter out GCS HEARTBEAT messages  
+                            if self._should_forward_message(msg):  
+                                buf = msg.get_msgbuf()  
+                                for other in self.connections:  
+                                    if other is not conn:  
+                                        other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue  
+    
+            if udp_connections:  
+                # Handle UDP connections separately  
+                for conn in udp_connections:  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            # Filter out GCS HEARTBEAT messages  
+                            if self._should_forward_message(msg):  
+                                buf = msg.get_msgbuf()  
+                                for other in self.connections:  
+                                    if other is not conn:  
+                                        other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue  
+    
+                time.sleep(0.001)  # Small delay to prevent CPU spinning  
+    
+    def _should_forward_message(self, msg):  
+        """  
+        Determine if a message should be forwarded between connections.  
+        Filter out GCS HEARTBEAT messages to prevent vehicle type confusion.  
+        """  
+        if msg.get_type() == 'HEARTBEAT':  
+            # Don't forward HEARTBEAT messages from GCS sources  
+            if msg.type == mavutil.mavlink.MAV_TYPE_GCS:  
+                return False  
+            # Also filter out other non-vehicle HEARTBEAT types that could cause confusion  
+            if msg.type in (mavutil.mavlink.MAV_TYPE_GIMBAL,  
+                        mavutil.mavlink.MAV_TYPE_ADSB,  
+                        mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER):  
+                return False  
+        return True
 
     def connect(self, ip_address: str = "tcp:127.0.0.1:5762", baud: int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
@@ -651,7 +672,20 @@ class Zenmav:
 
             connection.close()
             print("Connection closed. Mission Finished")
-
+    def close_all_connections(self):  
+        """Close all connections including GCS connections"""  
+        # Stop the forwarder thread first  
+        self._stop_forwarder = True  
+        
+        if hasattr(self, 'connection') and self.connection:  
+            self.connection.close()  
+        
+        if hasattr(self, 'connections'):  
+            for conn in self.connections:  
+                try:  
+                    conn.close()  
+                except:  
+                    pass
     def insert_coordinates_to_csv(self, file_path: str, waypoint: wp, description = True):
         """
         Inserts coordinates into a CSV file. If the file doesn't exist, it creates one with a header.

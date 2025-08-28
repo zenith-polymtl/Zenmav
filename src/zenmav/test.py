@@ -5,5 +5,8 @@ while True:
     drone.set_mode('GUIDED')
     time.sleep(0.5)
     drone.set_mode('RTL')
-    drone.connection.close()
-    time.sleep(2)
+    time.sleep(0.2)
+    drone.close_all_connections()
+    input('')
+
+
