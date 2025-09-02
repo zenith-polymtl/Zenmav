@@ -81,3 +81,11 @@ class wp:
             timestamp=self.timestamp,
             name=self.name
         )
+    
+    def show(self):
+        if self.frame == "global":
+            print(f'Lat, Lon, alt : {self.lat}, {self.lon}, {self.alt}')
+        elif self.frame == "local":
+            print(f"NED : {self.N}, {self.E}, {self.D}")
+        elif self.frame == "base_link":
+            print(f"FRED : {self.F}, {self.R}, {self.D}")

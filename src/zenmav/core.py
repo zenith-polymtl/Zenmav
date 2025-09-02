@@ -44,7 +44,7 @@ class Zenmav:
                     print(
                         f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}."
                     )
-        self.home = self.get_global_pos()
+        self.set_home()
         ref_point = Point(self.home.lat, self.home.lon)
         point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
         self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
@@ -183,14 +183,18 @@ class Zenmav:
             waypoint = wp(waypoint[0],waypoint[1],waypoint[2], frame = 'global')
 
         connection = self.connection
-        print(waypoint.coordinates)
+        #print(waypoint.coordinates)
 
         if waypoint.frame == "local":
             print('local frame, converting to global')
             waypoint = self.convert_to_global(waypoint, self.home)
 
-        mask = 0b11111111000 if heading is not None else 0b11011111000
-        yaw_angle = 0 if heading == None else heading
+        if heading == None:
+            mask = 0b11011111000
+            heading = 0
+        else:
+            mask =  0b1001111000
+            heading *= 3.1415926535/180
 
         
         # Send a MAVLink command to set the target global position
@@ -209,7 +213,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration set
-            yaw_angle,
+            heading,
             0,  # No yaw or yaw rate
         )
 
@@ -247,6 +251,44 @@ class Zenmav:
         new_pos = local_pos
 
         return new_pos
+    
+    def convert_to_local(self, global_pos, reference_point=None):
+        """
+        Convert global GPS coordinates to local NED meters relative to a reference.
+        Inputs:
+            global_pos: wp or (lat, lon, alt), where alt is relative to reference (e.g., home).
+            reference_point: wp or (lat, lon, alt). Defaults to self.home.
+        Returns:
+            wp(N, E, D, frame="local")
+        """
+        # Normalize inputs
+        if isinstance(global_pos, (list, tuple)):
+            global_pos = wp(global_pos[0], global_pos[1], global_pos[2], frame="global")
+
+        if reference_point is None:
+            ref_lat, ref_lon = self.home.lat, self.home.lon
+        else:
+            if isinstance(reference_point, wp):
+                ref_lat, ref_lon = reference_point.lat, reference_point.lon
+            else:
+                ref_lat, ref_lon = reference_point[0], reference_point[1]
+
+        # Northing (meters): move in latitude with same longitude
+        dN = distance((ref_lat, ref_lon), (global_pos.lat, ref_lon)).meters
+        if global_pos.lat < ref_lat:
+            dN = -dN
+
+        # Easting (meters): move in longitude with same latitude
+        dE = distance((ref_lat, ref_lon), (ref_lat, global_pos.lon)).meters
+        if global_pos.lon < ref_lon:
+            dE = -dE
+
+        # Down (meters): NED convention (Down positive). If alt is relative to reference,
+        # local D = - (alt - ref_alt). With relative_alt (already relative to home), this is just -alt.
+        D = - global_pos.alt
+
+        return wp(dN, dE, D, frame="local")
+
 
     def local_target(
         self,
@@ -276,7 +318,7 @@ class Zenmav:
         else:
             mask =  0b1001111000
             if not turn_into_wp:
-                heading *= 3.14159/180
+                heading *= 3.1415926535/180
 
 
 
@@ -316,8 +358,8 @@ class Zenmav:
             else:
                 print("Waypoint reached!")
 
-    def speed_target(self, waypoint: wp, yaw_rate: float = 0.0):
-        yaw_rate = yaw_rate * np.pi / 180  # Convert degrees to radians
+    def speed_target(self, waypoint: wp, yaw_rate = None):
+          # Convert degrees to radians
         """Allows easy sending of a drone speed command in its reference system (Forward, right, down).
 
         Args:
@@ -332,13 +374,21 @@ class Zenmav:
         else:
             if waypoint.frame == "local" or waypoint.frame == "global":
                 raise(ValueError)
+        
+        
+        if yaw_rate == None:
+            mask = 0b111111000111
+            yaw_rate = 0
+        else:
+            mask =  0b010111000111
+            yaw_rate = yaw_rate * np.pi / 180
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
-            0b010111000111,  # Speed mask
+            mask, # Speed mask
             0,
             0,
             0,  # X Front, Y Right, Z Down
@@ -353,9 +403,9 @@ class Zenmav:
         )
 
         # Wait for the waypoint to be reached
-        print(f"Speed command of {waypoint.coordinates} m/s")
+        #print(f"Speed command of {waypoint.coordinates} m/s")
 
-    def yaw_target(self,yaw_angle, relative:bool = False):
+    def yaw_target(self,yaw_angle, max_rate =45,  relative:bool = False, clockwise = -1):
 
         while yaw_angle<0:
             yaw_angle += 360
@@ -368,7 +418,7 @@ class Zenmav:
         mavutil.mavlink.MAV_CMD_CONDITION_YAW,  # command  
         0,                                  # confirmation  
         yaw_angle,                                 # param1: target angle (0-360 degrees, 0=north)  
-        45,                                 # param2: angular speed (deg/s)  
+        max_rate,                                 # param2: angular speed (deg/s)  
         0,                                  # param3: direction (1=clockwise, -1=counter-clockwise)  
         relative,                                  # param4: relative (0=absolute, 1=relative offset)  
         0, 0, 0                            # param5-7: empty  
@@ -395,7 +445,10 @@ class Zenmav:
                 abs(actual.lon - target.lon) <= self.lon_thresh
             )
         else:
-            return np.linalg.norm(np.array(actual.coordinates) - np.array(target.coordinates)) < threshold
+            #print(f'ACTUAL : {actual.coordinates} / REAL : {target.coordinates}')
+            error = np.linalg.norm(np.array(actual.coordinates) - np.array(target.coordinates)) 
+            #print(error)
+            return error < threshold
 
     def get_local_pos(self, frequency_hz: int = 60):
         """Allows to get the local position, and makes a request to get the data at the desired frequency.
@@ -424,7 +477,7 @@ class Zenmav:
             if msg and msg.get_type() == "LOCAL_POSITION_NED":
                 # print(f"Position: X = {msg.x} m, Y = {msg.y} m, Z = {msg.z} m")
                 return wp(msg.x, msg.y, msg.z, frame = "local")
-            # Reduce busy-waiting and ensure responsiveness
+
 
     def get_global_pos(self, time_tag: bool = False, heading: bool = False):
         """Gets the current global position of the drone in GPS coordinates (latitude, longitude, altitude). Optionally includes a time tag and heading.
@@ -644,7 +697,7 @@ class Zenmav:
         armable = False
 
         while self.connection.recv_match(type="SYS_STATUS", blocking=False, timeout=2):
-            pass
+            time.sleep(0.001)
 
         while not armable:
             sys_status = connection.recv_match(
@@ -683,7 +736,7 @@ class Zenmav:
         connection.motors_armed_wait()
         print("Motors armed!")
 
-    def takeoff(self, altitude: float = 10.0, threshold = 2, while_moving=None):
+    def takeoff(self, altitude: float = 10.0, threshold = 1, while_moving=None):
         """Makes the drone take off. Requires 'GUIDED' mode, and the drone to be armed.
 
         Args:
@@ -691,15 +744,14 @@ class Zenmav:
             altitude (int, optional): Drone altitude in m of height relative to origin. Defaults to 10.
         """
         # Takeoff
-        connection = self.connection
-        self.home = self.get_global_pos()
-        above_home = self.home.copy()
+        current_pos = self.get_global_pos()
+        above_home = current_pos.copy()
         above_home.alt += altitude
 
         print(f"Taking off to {altitude} meters...")
-        connection.mav.command_long_send(
-            connection.target_system,
-            connection.target_component,
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
             0,
             0,
@@ -988,7 +1040,10 @@ class Zenmav:
             type="ATTITUDE", blocking=True, timeout=2
         )
         if attitude:
-            return (attitude.roll, attitude.pitch, attitude.yaw)
+            yaw = attitude.yaw*180/np.pi
+            if yaw < 0:
+                yaw += 360
+            return (attitude.roll*180/np.pi, attitude.pitch*180/np.pi, yaw )
 
     def rc_override(self, channel_values: dict):
         """
@@ -1026,6 +1081,109 @@ class Zenmav:
         self.connection.mav.rc_channels_override_send(
             self.connection.target_system, self.connection.target_component, *ch
         )
+    
+    def set_home(self, timeout=2.0):  
+        """  
+        Set self.home to the actual HOME_POSITION instead of EKF origin.  
+        Returns True on success.  
+        """  
+        # Request HOME_POSITION message (ID 242)  
+        self.connection.mav.command_long_send(  
+            self.connection.target_system,   
+            self.connection.target_component,  
+            mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE,   
+            0,  
+            242,  # HOME_POSITION message ID  
+            0, 0, 0, 0, 0, 0  
+        )  
+        
+        msg = self.connection.recv_match(type="HOME_POSITION", blocking=True, timeout=timeout)  
+        if not msg:  
+            return False  
+    
+        lat = msg.latitude / 1e7  
+        lon = msg.longitude / 1e7  
+        alt = msg.altitude / 1000.0  # Convert from mm to meters  
+        self.home = wp(lat, lon, alt, frame="global")  
+        return True
+
+    
+    def orbit(self, center, radius, speed, clockwise = True, N_turns = 1, force = False, initial_position_threshold = 0.1, radius_tolerance = 1):
+        if center.frame == "global":
+            center = self.convert_to_local(center)
+        if speed**2/radius > 1.5 and not force:
+            print('WARNING : HIGH CENTREPIDAL ACCELERATION, PRONE TO ERROR')
+            print('SET force = True TO PROCEED, ABORTING')
+            return None
+        pos = self.get_local_pos()
+        posN, posE = pos.N, pos.E
+
+        dx, dy = posN - center.N, posE - center.E
+        d = (dx*dx + dy*dy) ** 0.5
+        if d == 0:
+            return center.N + radius, center.E          # arbitrary direction if you're at the center
+        k = radius / d
+        N_point, E_point = center.N + k*dx, center.E + k*dy
+        E_error, N_error = center.E - E_point,  center.N - N_point
+        hdg_init = atan2(E_error, N_error)*180/3.141592
+
+        circumference = 2*np.pi*radius
+        time_for_loop = circumference/speed
+        rate = 360/time_for_loop
+
+        if clockwise :
+            speed = -speed
+        else:
+            rate = -rate
+
+        radius_pid = PIDController(3.5, 0, 2)
+
+
+        above_target = wp(N_point, E_point, center.D, frame = "local")
+        initial_wpnav_radius = self.get_param('WPNAV_RADIUS')
+        self.set_param('WPNAV_RADIUS', initial_position_threshold*100/2)
+        self.local_target(above_target, acceptance_radius= initial_position_threshold, heading=hdg_init)
+        time.sleep(2)
+        actual_pos = self.get_local_pos()
+        actual_x, actual_y = actual_pos.N, actual_pos.E
+        E_error, N_error = center.E - actual_y,  center.N - actual_x
+        hdg = atan2(E_error, N_error)*180/3.141592
+        if hdg < 0:
+            hdg += 360
+
+        self.yaw_target(hdg)
+        error = round(self.get_attitude()[2],0) - round(hdg,0)
+        while error > 1:
+            yaw = round(self.get_attitude()[2],0)
+            error =  yaw - round(hdg,0)
+            time.sleep(0.01)
+        time.sleep(1)
+
+        
+        
+        first = True
+        start_time = time.time()
+        while time.time() - start_time < N_turns*time_for_loop:
+            if first :
+                first = False
+                self.speed_target((0,-speed,0) , yaw_rate=rate)
+                F_speed = 0
+            else:
+                actual_pos = self.get_local_pos()
+                actual_x, actual_y = actual_pos.N, actual_pos.E
+                E_error, N_error = center.E - actual_y,  center.N - actual_x
+                distance = np.linalg.norm((E_error, N_error))
+                difference = radius - distance
+                if difference > radius_tolerance:
+                    print('ORBIT TRACKING FAILED, ABORTING')
+                    break
+                F_speed = radius_pid.compute(difference, time.time() - last_time)
+
+            self.speed_target((-F_speed,speed,0) , yaw_rate=rate)
+            last_time = time.time()
+
+        self.speed_target((0,0,0), yaw_rate=0)
+        self.set_param('WPNAV_RADIUS', initial_wpnav_radius)
 
 
 class battery:
@@ -1035,5 +1193,24 @@ class battery:
 
 
 
+class PIDController():
+    def __init__(self, kp, ki, kd, max_output = 3.0):  # Une norme de 3.0 m/s est le max pour vitesses xy envoyées au drone
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.max_output = max_output
+        self.prev_error = 0.0
+        self.integral = 0.0
 
+    def compute(self, error, dt):
+        if dt <= 0:
+            return 0.0
+        
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = error
+
+        # Clamp output to max value
+        return max(min(output, self.max_output), -self.max_output)
 
