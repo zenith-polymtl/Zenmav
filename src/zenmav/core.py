@@ -13,6 +13,7 @@ import select
 from .zenpoint import wp'''
 from zenboundary import Limits
 from zenpoint import wp
+from zengimbal import GimbalController
 
 
 
@@ -61,6 +62,7 @@ class Zenmav:
         if boundary_path is not None:
             self.limits = Limits(self, boundary_path, check_interval=0.25)
         
+        self.gimbal = GimbalController(self)
         self.parms = mavparm.MAVParmDict() 
         print("Zenmav initialized")
 
