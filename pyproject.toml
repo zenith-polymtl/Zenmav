@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "zenmav"
-version = "0.1.3"
+version = "0.1.6"
 authors = [
   { name="Colin Rousseau", email="colin.rousseau@polymtl.ca" },
 ]
@@ -21,7 +21,8 @@ dependencies = [
   "tomli",
   "shapely",
   "pyproj",
-  "matplotlib"
+  "matplotlib",
+  "pyserial"
 ]
 license = "Apache-2.0"
 license-files = ["LICEN[CS]E*"]

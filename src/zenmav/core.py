@@ -16,6 +16,7 @@ from zenpoint import wp
 
 
 
+
 class Zenmav:
     def __init__(
         self,
@@ -36,6 +37,7 @@ class Zenmav:
 
         self.connect(ip, baud)
         nav_thresh = self.get_param("WPNAV_RADIUS") / 100
+        
         if self.gps_thresh is None:
             self.gps_thresh = nav_thresh + 1.0
         else:
@@ -45,6 +47,10 @@ class Zenmav:
                         f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}."
                     )
         self.set_home()
+        try:
+            self.home.show()
+        except:
+            self.home = self.get_global_pos()
         ref_point = Point(self.home.lat, self.home.lon)
         point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
         self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
@@ -81,6 +87,22 @@ class Zenmav:
                 for conn in self.connections  
                 if hasattr(conn, "fd") and conn.fd is not None  
             ]  
+
+            serial_connections = [  
+            conn for conn in self.connections   
+            if isinstance(conn, mavutil.mavserial)  
+            ] 
+
+            for conn in serial_connections:  
+                try:  
+                    msg = conn.recv_match(blocking=False)  
+                    if msg and self._should_forward_message(msg):  
+                        buf = msg.get_msgbuf()  
+                        for other in self.connections:  
+                            if other is not conn:  
+                                other.write(buf)  
+                except Exception:  
+                    continue   
     
             # Handle TCP connections with select  
             if tcp_connections:  
@@ -591,7 +613,7 @@ class Zenmav:
         print(f"Failed to set parameter {param_name} after {max_retries} attempts")  
         return False
                 
-    def download_all_params(self):  
+    def download_all_params(self, filename = None):  
         """Method to download parameters using traditional MAVLink messages"""   
         
         # Request all parameters  
@@ -630,10 +652,13 @@ class Zenmav:
                 break  
         
         # Save parameters to file  
-        now = datetime.now()  
-        datetime_string = now.strftime("%Y-%m-%d_%H-%M-%S")  
-        filename = f'Params_{datetime_string}.txt'  
-        
+        if filename is None:
+            now = datetime.now()  
+            datetime_string = now.strftime("%Y-%m-%d_%H-%M-%S")  
+            filename = f'Params_{datetime_string}.param'  
+
+        filename + 'param' if not filename.endswith('param') else filename
+
         self._save_params_to_file(params, filename)  
         print(f"Saved {len(params)} parameters to {filename}")
     
