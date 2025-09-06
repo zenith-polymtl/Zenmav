@@ -52,6 +52,8 @@ class GimbalController:
     MODE_GPS_POINT = 4
     MODE_SYSID_TARGET = 5
     MODE_HOME_LOCATION = 6
+
+    
     
     # Yaw control flags
     YAW_FOLLOW = 0      # Body-frame/follow
@@ -68,14 +70,23 @@ class GimbalController:
         self.current_mode = None
         self.current_angles = {"pitch": 0, "yaw": 0, "roll": 0}
         self._validate_connection()
+        self.mode_mapping = {'retract' : 0,
+                              'neutral' : 1,
+                                'mavlink_targeting' : 2,
+                                  'rc_targeting':3,
+                                  'gps_point' : 4,
+                                  'sys_id_target' : 5,
+                                  'home_location' : 6}
     
     def _validate_connection(self):
         """Validate that the connection supports gimbal commands"""
         # Check if MAVLink connection is active
+        
         if not hasattr(self.connection, 'mav'):
             raise GimbalCommunicationError("Invalid MAVLink connection")
     
-    def configure_mode(self, mode):
+    def set_mode(self, mode : str):
+        mode = mode.lower()
         """Configure gimbal mode using MAV_CMD_DO_MOUNT_CONTROL
         
         Args:
@@ -88,10 +99,9 @@ class GimbalController:
             GimbalParameterError: If mode is invalid
             GimbalCommunicationError: If communication fails
         """
-        if mode not in [self.MODE_RETRACT, self.MODE_NEUTRAL, self.MODE_MAVLINK_TARGETING,
-                       self.MODE_RC_TARGETING, self.MODE_GPS_POINT, self.MODE_SYSID_TARGET,
-                       self.MODE_HOME_LOCATION]:
-            raise GimbalParameterError(f"Invalid mode: {mode}")
+        if mode not in self.mode_mapping.keys():
+            print(f"Invalid mode: {mode}")
+            return
         
         try:
             self.connection.mav.command_long_send(
@@ -105,9 +115,10 @@ class GimbalController:
                 0,  # param4 (altitude)
                 0,  # param5 (longitude)
                 0,  # param6 (latitude)
-                mode  # param7 (mode)
+                self.mode_mapping[mode]  # param7 (mode)
             )
             self.current_mode = mode
+            print(f'Gimbal mode set to {mode}')
             return True
         except Exception as e:
             raise GimbalCommunicationError(f"Failed to configure mode: {str(e)}")
@@ -118,7 +129,7 @@ class GimbalController:
         Returns:
             bool: True if command was sent successfully
         """
-        return self.configure_mode(self.MODE_RETRACT)
+        return self.set_mode('retract')
     
     def neutral(self):
         """Set gimbal to neutral position
@@ -126,7 +137,7 @@ class GimbalController:
         Returns:
             bool: True if command was sent successfully
         """
-        return self.configure_mode(self.MODE_NEUTRAL)
+        return self.set_mode('neutral')
     
     def mavlink_targeting(self):
         """Switch to MAVLink targeting mode
@@ -134,9 +145,9 @@ class GimbalController:
         Returns:
             bool: True if command was sent successfully
         """
-        return self.configure_mode(self.MODE_MAVLINK_TARGETING)
+        return self.set_mode('mavlink_targeting')
     
-    def set_angle(self, pitch=None, yaw=None, roll=None, pitch_rate=None, 
+    def set_angle(self, pitch=None, yaw=None, pitch_rate=None, 
                   yaw_rate=None, flags=YAW_FOLLOW):
         """Set gimbal angles using MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW
         
@@ -155,12 +166,17 @@ class GimbalController:
             GimbalParameterError: If parameters are invalid
             GimbalCommunicationError: If communication fails
         """
+        
         # Validate parameters
         if pitch is not None and (pitch < -180 or pitch > 180):
-            raise GimbalParameterError("Pitch must be between -180 and 180 degrees")
+            print("Pitch must be between -180 and 180 degrees")
+            return
         
         if yaw is not None and (yaw < -180 or yaw > 180):
-            raise GimbalParameterError("Yaw must be between -180 and 180 degrees")
+            while yaw > 180 :
+                yaw -= 360
+            while yaw < -180:
+                yaw += 360
         
         try:
             self.connection.mav.command_long_send(
@@ -168,9 +184,9 @@ class GimbalController:
                 self.connection.target_component,
                 mavutil.mavlink.MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
                 0,  # confirmation
-                pitch if pitch is not None else float('nan'),
+                pitch if pitch is not None else self.current_angles['pitch'],
                 yaw if yaw is not None else float('nan'),
-                pitch_rate if pitch_rate is not None else float('nan'),
+                pitch_rate if pitch_rate is not None else self.current_angles['roll'],
                 yaw_rate if yaw_rate is not None else float('nan'),
                 flags,  # param5 (flags)
                 0,      # param6 (unused)
@@ -182,9 +198,9 @@ class GimbalController:
                 self.current_angles["pitch"] = pitch
             if yaw is not None:
                 self.current_angles["yaw"] = yaw
-            if roll is not None:
-                self.current_angles["roll"] = roll
-                
+
+            print(f'Moving gimbal to Pitch :  {pitch}, Yaw : {yaw}')
+
             return True
         except Exception as e:
             raise GimbalCommunicationError(f"Failed to set angle: {str(e)}")
@@ -223,10 +239,12 @@ class GimbalController:
         """
         # Validate parameters
         if lat < -90 or lat > 90:
-            raise GimbalParameterError("Latitude must be between -90 and 90 degrees")
+            print("Latitude must be between -90 and 90 degrees")
+            return
         
         if lon < -180 or lon > 180:
-            raise GimbalParameterError("Longitude must be between -180 and 180 degrees")
+            print("Longitude must be between -180 and 180 degrees")
+            return
         
         try:
             self.connection.mav.command_int_send(
@@ -273,43 +291,6 @@ class GimbalController:
             return True
         except Exception as e:
             raise GimbalCommunicationError(f"Failed to stop pointing: {str(e)}")
-    
-    def get_gimbal_param(self, param_name):
-        """Get gimbal-specific parameter
-        
-        Args:
-            param_name: Name of the parameter (without MNT1_ prefix)
-            
-        Returns:
-            Parameter value
-            
-        Raises:
-            GimbalParameterError: If parameter name is invalid
-        """
-        if not param_name or not isinstance(param_name, str):
-            raise GimbalParameterError("Parameter name must be a non-empty string")
-        
-        full_param_name = f"MNT1_{param_name}"
-        return self.drone.get_param(full_param_name)
-    
-    def set_gimbal_param(self, param_name, value):
-        """Set gimbal-specific parameter
-        
-        Args:
-            param_name: Name of the parameter (without MNT1_ prefix)
-            value: Value to set
-            
-        Returns:
-            bool: True if parameter was set successfully
-            
-        Raises:
-            GimbalParameterError: If parameter name or value is invalid
-        """
-        if not param_name or not isinstance(param_name, str):
-            raise GimbalParameterError("Parameter name must be a non-empty string")
-        
-        full_param_name = f"MNT1_{param_name}"
-        return self.drone.set_param(full_param_name, value)
     
     def get_status(self):
         """Get current gimbal status

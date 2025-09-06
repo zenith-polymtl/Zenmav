@@ -1,5 +1,3 @@
-from core import Zenmav
+print(5763%255)
 
-drone = Zenmav('COM12', GCS = True)
-
-drone.download_all_params('oui_baguette')
+#Reserved 170-175, 150-153

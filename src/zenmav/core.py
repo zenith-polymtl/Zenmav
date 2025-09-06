@@ -9,13 +9,9 @@ from geopy import Point
 from datetime import datetime
 import threading
 import select
-'''from .zenboundary import Limits
-from .zenpoint import wp'''
-from zenboundary import Limits
-from zenpoint import wp
-from zengimbal import GimbalController
-
-
+from .zenboundary import Limits
+from .zenpoint import wp
+from .zengimbal import GimbalController
 
 
 class Zenmav:
@@ -52,6 +48,8 @@ class Zenmav:
             self.home.show()
         except:
             self.home = self.get_global_pos()
+            print('Measured initial global pose to set home')
+
         ref_point = Point(self.home.lat, self.home.lon)
         point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
         self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
@@ -154,9 +152,10 @@ class Zenmav:
             # Don't forward HEARTBEAT messages from GCS sources  
             if msg.type == mavutil.mavlink.MAV_TYPE_GCS:  
                 return False  
+            
+            #mavutil.mavlink.MAV_TYPE_GIMBAL,  
             # Also filter out other non-vehicle HEARTBEAT types that could cause confusion  
-            if msg.type in (mavutil.mavlink.MAV_TYPE_GIMBAL,  
-                        mavutil.mavlink.MAV_TYPE_ADSB,  
+            if msg.type in (mavutil.mavlink.MAV_TYPE_ADSB,  
                         mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER):  
                 return False  
         return True
@@ -178,6 +177,10 @@ class Zenmav:
         except:
             print('Non IP connection string')
             source_system_id = np.random.randint(1,254)
+            #Ports commonly used 14550-14555, 5760-5763
+            reserved_id_for_common_ports = [170,171,172,173,174,175,150,151,152,153]
+            while source_system_id not in reserved_id_for_common_ports:
+                source_system_id = np.random.randint(1,254)
 
         print(f"System ID : {source_system_id}")
         # Create the self.connection
