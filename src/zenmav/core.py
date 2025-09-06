@@ -431,6 +431,7 @@ class Zenmav:
 
     def yaw_target(self,yaw_angle, max_rate =45,  relative:bool = False, clockwise = -1):
 
+        # make sure the angle is between 0 and 360
         while yaw_angle<0:
             yaw_angle += 360
         while yaw_angle > 360:
