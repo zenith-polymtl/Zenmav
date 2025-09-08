@@ -1,16 +1,14 @@
 
 from core import Zenmav
 import time
-drone = Zenmav(gps_thresh=0.5)
-drone.guided_arm_takeoff(100)
+drone = Zenmav()
+
+drone.set_mode('GUIDED')
+input('WAIT')
+drone.takeoff(10, 5)
+
+drone.local_target((10,20,-30), wait_to_reach=False)
+
+print('GOING TO POINT AND SHUTTING DOWN')
 
 
-
-drone.set_mode('ACRO')
-finisheed = False
-start_time = time.time()
-if time.time()- start_time < 3:
-    drone.rc_override({'ch3': 1600})
-elif not finisheed:
-    drone.set_mode('GUIDED')
-    finished = True

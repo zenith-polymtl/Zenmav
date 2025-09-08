@@ -5,17 +5,20 @@
 Zenmav is a lightweight Python wrapper that lets you write quick and simple scripts for ArduPilot-controlled drones in either SITL or real hardware.
 Developed by **Zenith Polytechnique Montréal**.
 
+**AI help for zenmav!**
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zenith-polymtl/Zenmav)
+
 ## Key Features
 
 - **Simplified Pymavlink Commands with Feedback** – one-line TCP/UDP connection with heartbeat check and easy mode change
 - **Precise Navigation and commands**
-  
+
   - Global GPS waypoints with user-defined accuracy
   - Local NED waypoints relative to home
   - Real-time body-frame speed control
   - RC override commands
 - **Autonomous Area Scans**
-  
+
   - Rectilinear/lawn-mower pattern
   - Spiral pattern
   - **Mavlink commands and utilities**
@@ -199,4 +202,3 @@ Upload with
 ``twine upload dist/*``
 
 Enter API Token (Currently only accessible by maintainer Colin Rousseau)
-

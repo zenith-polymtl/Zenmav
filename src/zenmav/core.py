@@ -488,7 +488,7 @@ class Zenmav:
             )
             self.last_message_req = message_type
 
-    def set_mode(self, mode: str):
+    def set_mode(self, mode: str, max_retries = 3):
         """Allows easy mode selection from its string
 
         Args:
@@ -497,12 +497,23 @@ class Zenmav:
         """
         connection = self.connection
         mode_id = connection.mode_mapping()[mode]  # Conversion of mode to its id
-        connection.mav.set_mode_send(
-            connection.target_system,
-            mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            mode_id,
-        )
-        print(f"Setting mode to {mode}...")
+
+   
+        for i in range(max_retries):
+            connection.mav.set_mode_send(
+                connection.target_system,
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                mode_id,
+            )
+ 
+            heartbeat = connection.recv_match(type='HEARTBEAT', blocking=True, timeout=1.0)  
+            if heartbeat and connection.flightmode.upper() == mode.upper():  
+                print(f"Mode successfully changed to {mode}")
+                break  
+            else:
+                print(f'FAILED TO CHANGE MODE TO {mode}')
+            
+
 
     def arm(self):
         """Arms the drone"""
@@ -546,7 +557,7 @@ class Zenmav:
             0,
         )
 
-        # Wait for arming confirmation
+       # Wait for arming confirmation
         connection.motors_armed_wait()
         print("Motors armed!")
 
