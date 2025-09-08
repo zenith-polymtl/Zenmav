@@ -2,6 +2,8 @@ README.md
 pyproject.toml
 src/zenmav/__init__.py
 src/zenmav/core.py
+src/zenmav/zenboundary.py
+src/zenmav/zenpoint.py
 src/zenmav.egg-info/PKG-INFO
 src/zenmav.egg-info/SOURCES.txt
 src/zenmav.egg-info/dependency_links.txt

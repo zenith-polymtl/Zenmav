@@ -1,14 +1,18 @@
-from pymavlink import mavutil
+from pymavlink import mavutil, mavparm
+from pymavlink.mavftp import MAVFTP 
 import time
 import numpy as np
 import csv
 from math import atan2
 from geopy.distance import distance
 from geopy import Point
+from datetime import datetime
 import threading
 import select
-from zenboundary import Limits
-from zenpoint import wp
+from .zenboundary import Limits
+from .zenpoint import wp
+from .zengimbal import GimbalController
+
 
 class Zenmav:
     def __init__(
@@ -23,12 +27,14 @@ class Zenmav:
         """Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol."""
         self = self
         self.last_message_req = None
+        self._stop_forwarder = False  
         self.gps_thresh = gps_thresh  # GPS threshold in meters
         if GCS:
             ip = self.split_connections(ip, tcp_ports)
 
         self.connect(ip, baud)
         nav_thresh = self.get_param("WPNAV_RADIUS") / 100
+        
         if self.gps_thresh is None:
             self.gps_thresh = nav_thresh + 1.0
         else:
@@ -37,7 +43,13 @@ class Zenmav:
                     print(
                         f"WARNING : Zenmav threshold {self.gps_thresh} is less than the AP nav threshold {nav_thresh}."
                     )
-        self.home = self.get_global_pos()
+        self.set_home()
+        try:
+            self.home.show()
+        except:
+            self.home = self.get_global_pos()
+            print('Measured initial global pose to set home')
+
         ref_point = Point(self.home.lat, self.home.lon)
         point_north = distance(meters=self.gps_thresh).destination(ref_point, bearing=0)
         self.lat_thresh = abs(point_north.latitude - ref_point.latitude)
@@ -46,8 +58,10 @@ class Zenmav:
         self.lon_thresh = abs(point_east.longitude - ref_point.longitude)
 
         if boundary_path is not None:
-            Limits(self, boundary_path, check_interval=0.25)
-
+            self.limits = Limits(self, boundary_path, check_interval=0.25)
+        
+        self.gimbal = GimbalController(self)
+        self.parms = mavparm.MAVParmDict() 
         print("Zenmav initialized")
 
     def split_connections(self, ip: str, tcp_ports: list):
@@ -62,52 +76,89 @@ class Zenmav:
         ip = "tcp:127.0.0.1:14550"
         return ip
 
-    def message_forwarder(self):
-        while True:
-            # Separate UDP and TCP connections
-            udp_connections = [
-                conn for conn in self.connections if isinstance(conn, mavutil.mavudp)
-            ]
-            tcp_connections = [
-                conn
-                for conn in self.connections
-                if hasattr(conn, "fd") and conn.fd is not None
-            ]
+    def message_forwarder(self):  
+        while not self._stop_forwarder:  
+            # Separate UDP and TCP connections  
+            udp_connections = [  
+                conn for conn in self.connections if isinstance(conn, mavutil.mavudp)  
+            ]  
+            tcp_connections = [  
+                conn  
+                for conn in self.connections  
+                if hasattr(conn, "fd") and conn.fd is not None  
+            ]  
 
-            # Handle TCP connections with select
-            if tcp_connections:
-                fd_to_conn = {conn.fd: conn for conn in tcp_connections}
-                ready_fds, _, _ = select.select(
-                    fd_to_conn.keys(), [], [], 0.01
-                )  # Short timeout
-                for fd in ready_fds:
-                    conn = fd_to_conn[fd]
-                    try:
-                        msg = conn.recv_match(blocking=False)
-                        if msg:
-                            buf = msg.get_msgbuf()
-                            for other in self.connections:
-                                if other is not conn:
-                                    other.write(buf)
-                    except (TypeError, AttributeError) as e:
-                        # Skip corrupted messages that cause state issues
-                        continue
+            serial_connections = [  
+            conn for conn in self.connections   
+            if isinstance(conn, mavutil.mavserial)  
+            ] 
 
-            if udp_connections:
-                # Handle UDP connections separately
-                for conn in udp_connections:
-                    try:
-                        msg = conn.recv_match(blocking=False)
-                        if msg:
-                            buf = msg.get_msgbuf()
-                            for other in self.connections:
-                                if other is not conn:
-                                    other.write(buf)
-                    except (TypeError, AttributeError) as e:
-                        # Skip corrupted messages that cause state issues
-                        continue
-
-                time.sleep(0.001)  # Small delay to prevent CPU spinning
+            for conn in serial_connections:  
+                try:  
+                    msg = conn.recv_match(blocking=False)  
+                    if msg and self._should_forward_message(msg):  
+                        buf = msg.get_msgbuf()  
+                        for other in self.connections:  
+                            if other is not conn:  
+                                other.write(buf)  
+                except Exception:  
+                    continue   
+    
+            # Handle TCP connections with select  
+            if tcp_connections:  
+                fd_to_conn = {conn.fd: conn for conn in tcp_connections}  
+                ready_fds, _, _ = select.select(  
+                    fd_to_conn.keys(), [], [], 0.01  
+                )  # Short timeout  
+                for fd in ready_fds:  
+                    conn = fd_to_conn[fd]  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            # Filter out GCS HEARTBEAT messages  
+                            if self._should_forward_message(msg):  
+                                buf = msg.get_msgbuf()  
+                                for other in self.connections:  
+                                    if other is not conn:  
+                                        other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue  
+    
+            if udp_connections:  
+                # Handle UDP connections separately  
+                for conn in udp_connections:  
+                    try:  
+                        msg = conn.recv_match(blocking=False)  
+                        if msg:  
+                            # Filter out GCS HEARTBEAT messages  
+                            if self._should_forward_message(msg):  
+                                buf = msg.get_msgbuf()  
+                                for other in self.connections:  
+                                    if other is not conn:  
+                                        other.write(buf)  
+                    except (TypeError, AttributeError) as e:  
+                        # Skip corrupted messages that cause state issues  
+                        continue  
+    
+                time.sleep(0.001)  # Small delay to prevent CPU spinning  
+    
+    def _should_forward_message(self, msg):  
+        """  
+        Determine if a message should be forwarded between connections.  
+        Filter out GCS HEARTBEAT messages to prevent vehicle type confusion.  
+        """  
+        if msg.get_type() == 'HEARTBEAT':  
+            # Don't forward HEARTBEAT messages from GCS sources  
+            if msg.type == mavutil.mavlink.MAV_TYPE_GCS:  
+                return False  
+            
+            #mavutil.mavlink.MAV_TYPE_GIMBAL,  
+            # Also filter out other non-vehicle HEARTBEAT types that could cause confusion  
+            if msg.type in (mavutil.mavlink.MAV_TYPE_ADSB,  
+                        mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER):  
+                return False  
+        return True
 
     def connect(self, ip_address: str = "tcp:127.0.0.1:5762", baud: int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
@@ -116,17 +167,28 @@ class Zenmav:
             ip_address (str, optional): IP address for connection.
                 Sitl simulation : 'tcp:127.0.0.1:5762' .
                 Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
-                Zenith Siyi connexion : 'udpout:192.168.144.12:19856'
+                Zenith Siyi connection : 'udpout:192.168.144.12:19856'
         Returns:
             None
         """
+        try:
+            port = ip_address.rsplit(':', 1)[1]
+            source_system_id = int(port)%255
+        except:
+            print('Non IP connection string')
+            source_system_id = np.random.randint(1,254)
+            #Ports commonly used 14550-14555, 5760-5763
+            reserved_id_for_common_ports = [170,171,172,173,174,175,150,151,152,153]
+            while source_system_id not in reserved_id_for_common_ports:
+                source_system_id = np.random.randint(1,254)
 
+        print(f"System ID : {source_system_id}")
         # Create the self.connection
         # Establish connection to MAVLink
         if baud is not None:
-            self.connection = mavutil.mavlink_connection(ip_address, baud=baud)
+            self.connection = mavutil.mavlink_connection(ip_address, baud=baud, source_system=source_system_id)
         else:
-            self.connection = mavutil.mavlink_connection(ip_address)
+            self.connection = mavutil.mavlink_connection(ip_address, source_system=source_system_id)
         print("Waiting for heartbeat...")
         self.connection.mav.heartbeat_send(
             mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0
@@ -134,7 +196,7 @@ class Zenmav:
         self.connection.wait_heartbeat()
         print("Heartbeat received!")
 
-    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True):
+    def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True, heading = None):
         """Sends a movement command to the drone for a specific global GPS coordinate.
 
         Args:
@@ -148,11 +210,19 @@ class Zenmav:
             waypoint = wp(waypoint[0],waypoint[1],waypoint[2], frame = 'global')
 
         connection = self.connection
-        print(waypoint.coordinates)
+        #print(waypoint.coordinates)
 
         if waypoint.frame == "local":
             print('local frame, converting to global')
             waypoint = self.convert_to_global(waypoint, self.home)
+
+        if heading == None:
+            mask = 0b11011111000
+            heading = 0
+        else:
+            mask =  0b1001111000
+            heading *= 3.1415926535/180
+
         
         # Send a MAVLink command to set the target global position
         connection.mav.set_position_target_global_int_send(
@@ -160,7 +230,7 @@ class Zenmav:
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,  # Global frame with relative altitude
-            0b100111111000,  # Position mask
+            mask,  # Position mask
             int(waypoint.lat * 1e7),  # Latitude in degrees * 1e7
             int(waypoint.lon * 1e7),  # Longitude in degrees * 1e7
             waypoint.alt,  # Altitude in meters (relative to home)
@@ -170,7 +240,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration set
-            0,
+            heading,
             0,  # No yaw or yaw rate
         )
 
@@ -208,6 +278,44 @@ class Zenmav:
         new_pos = local_pos
 
         return new_pos
+    
+    def convert_to_local(self, global_pos, reference_point=None):
+        """
+        Convert global GPS coordinates to local NED meters relative to a reference.
+        Inputs:
+            global_pos: wp or (lat, lon, alt), where alt is relative to reference (e.g., home).
+            reference_point: wp or (lat, lon, alt). Defaults to self.home.
+        Returns:
+            wp(N, E, D, frame="local")
+        """
+        # Normalize inputs
+        if isinstance(global_pos, (list, tuple)):
+            global_pos = wp(global_pos[0], global_pos[1], global_pos[2], frame="global")
+
+        if reference_point is None:
+            ref_lat, ref_lon = self.home.lat, self.home.lon
+        else:
+            if isinstance(reference_point, wp):
+                ref_lat, ref_lon = reference_point.lat, reference_point.lon
+            else:
+                ref_lat, ref_lon = reference_point[0], reference_point[1]
+
+        # Northing (meters): move in latitude with same longitude
+        dN = distance((ref_lat, ref_lon), (global_pos.lat, ref_lon)).meters
+        if global_pos.lat < ref_lat:
+            dN = -dN
+
+        # Easting (meters): move in longitude with same latitude
+        dE = distance((ref_lat, ref_lon), (ref_lat, global_pos.lon)).meters
+        if global_pos.lon < ref_lon:
+            dE = -dE
+
+        # Down (meters): NED convention (Down positive). If alt is relative to reference,
+        # local D = - (alt - ref_alt). With relative_alt (already relative to home), this is just -alt.
+        D = - global_pos.alt
+
+        return wp(dN, dE, D, frame="local")
+
 
     def local_target(
         self,
@@ -216,6 +324,7 @@ class Zenmav:
         while_moving=None,
         turn_into_wp: bool = False,
         wait_to_reach: bool = True,
+        heading = None
     ):
         """Allows easy sending of a drone movement command to local coordinates in NED system.
 
@@ -230,18 +339,27 @@ class Zenmav:
 
         connection = self.connection
 
-        yaw_angle = 0
+        if heading == None and turn_into_wp == False:
+            mask = 0b11011111000
+            heading = 0
+        else:
+            mask =  0b1001111000
+            if not turn_into_wp:
+                heading *= 3.1415926535/180
+
+
+
         if turn_into_wp:
             actual_pos = self.get_local_pos()
-            actual_x, actual_y = actual_pos[0], actual_pos[1]
-            yaw_angle = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
+            actual_x, actual_y = actual_pos.N, actual_pos.E
+            heading = atan2(waypoint.E - actual_y, waypoint.N - actual_x)
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-            0b10011111000,  # Position mask
+            mask,  # Position mask
             waypoint.N,
             waypoint.E,
             waypoint.D,  # X (North), Y (East), Z (Down)
@@ -251,7 +369,7 @@ class Zenmav:
             0,
             0,
             0,  # No acceleration
-            yaw_angle,
+            heading,
             0,  # No yaw or yaw rate
         )
         if wait_to_reach:
@@ -267,8 +385,8 @@ class Zenmav:
             else:
                 print("Waypoint reached!")
 
-    def speed_target(self, waypoint: wp, yaw_rate: float = 0.0):
-        yaw_rate = yaw_rate * np.pi / 180  # Convert degrees to radians
+    def speed_target(self, waypoint: wp, yaw_rate = None):
+          # Convert degrees to radians
         """Allows easy sending of a drone speed command in its reference system (Forward, right, down).
 
         Args:
@@ -283,13 +401,21 @@ class Zenmav:
         else:
             if waypoint.frame == "local" or waypoint.frame == "global":
                 raise(ValueError)
+        
+        
+        if yaw_rate == None:
+            mask = 0b111111000111
+            yaw_rate = 0
+        else:
+            mask =  0b010111000111
+            yaw_rate = yaw_rate * np.pi / 180
 
         connection.mav.set_position_target_local_ned_send(
             0,  # Time in milliseconds
             connection.target_system,
             connection.target_component,
             mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
-            0b010111000111,  # Speed mask
+            mask, # Speed mask
             0,
             0,
             0,  # X Front, Y Right, Z Down
@@ -304,7 +430,28 @@ class Zenmav:
         )
 
         # Wait for the waypoint to be reached
-        print(f"Speed command of {waypoint.coordinates} m/s")
+        #print(f"Speed command of {waypoint.coordinates} m/s")
+
+    def yaw_target(self,yaw_angle, max_rate =45,  relative:bool = False, clockwise = -1):
+
+        # make sure the angle is between 0 and 360
+        while yaw_angle<0:
+            yaw_angle += 360
+        while yaw_angle > 360:
+            yaw_angle -= 360
+
+        self.connection.mav.command_long_send(  
+        self.connection.target_system,           # target_system  
+        self.connection.target_component,        # target_component  
+        mavutil.mavlink.MAV_CMD_CONDITION_YAW,  # command  
+        0,                                  # confirmation  
+        yaw_angle,                                 # param1: target angle (0-360 degrees, 0=north)  
+        max_rate,                                 # param2: angular speed (deg/s)  
+        0,                                  # param3: direction (1=clockwise, -1=counter-clockwise)  
+        relative,                                  # param4: relative (0=absolute, 1=relative offset)  
+        0, 0, 0                            # param5-7: empty  
+        )
+
 
     def is_near_waypoint(
         self, actual: wp, target: wp, threshold: float = 2.0):
@@ -326,7 +473,10 @@ class Zenmav:
                 abs(actual.lon - target.lon) <= self.lon_thresh
             )
         else:
-            return np.linalg.norm(np.array(actual.coordinates) - np.array(target.coordinates)) < threshold
+            #print(f'ACTUAL : {actual.coordinates} / REAL : {target.coordinates}')
+            error = np.linalg.norm(np.array(actual.coordinates) - np.array(target.coordinates)) 
+            #print(error)
+            return error < threshold
 
     def get_local_pos(self, frequency_hz: int = 60):
         """Allows to get the local position, and makes a request to get the data at the desired frequency.
@@ -355,7 +505,7 @@ class Zenmav:
             if msg and msg.get_type() == "LOCAL_POSITION_NED":
                 # print(f"Position: X = {msg.x} m, Y = {msg.y} m, Z = {msg.z} m")
                 return wp(msg.x, msg.y, msg.z, frame = "local")
-            # Reduce busy-waiting and ensure responsiveness
+
 
     def get_global_pos(self, time_tag: bool = False, heading: bool = False):
         """Gets the current global position of the drone in GPS coordinates (latitude, longitude, altitude). Optionally includes a time tag and heading.
@@ -429,38 +579,105 @@ class Zenmav:
                     else:
                         print(f"Channel {channel} not available in the message.")
                         return None
+                    
+    def get_param(self, param_name: str, max_retries=10):  
+        """Fetches a specific parameter from the drone."""  
+        for i in range(max_retries):  
+            self.connection.param_fetch_one(param_name)  
+            print(f"Requesting parameter: {param_name}")  
+            
+            msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)  
+            if msg and msg.param_id == param_name:  
+                param_value = msg.param_value  
+                print(f"Parameter {param_name}: {param_value}")  
+                if param_value is not None:  
+                    return param_value  
+        return None  
+  
+    def set_param(self, param_name: str, value: float, max_retries=5, parm_type=None):  
+        """Sets a specific parameter on the drone using MAVParmDict."""  
+        for i in range(max_retries):  
+            print(f"Setting parameter {param_name} to {value} (attempt {i + 1})")  
+                
+            # Use MAVParmDict.mavset() instead of basic param_set_send  
+            success = self.parms.mavset(self.connection, param_name, value,   
+                                        retries=1, parm_type=parm_type)  
+                
+            if success:  
+                # Verify the parameter was set correctly  
+                new_value = self.get_param(param_name, max_retries=3)  
+                if new_value is not None and round(new_value, 5) == round(value, 5):  
+                    print(f"Parameter {param_name} set to: {new_value}")  
+                    return True  
+                else:  
+                    print(f"Verification failed for {param_name}: got {new_value}, expected {value}")  
+                    time.sleep(0.02)  
+            else:  
+                print(f"Failed to set {param_name} on attempt {i + 1}")  
+                time.sleep(0.02)  
+            
+        print(f"Failed to set parameter {param_name} after {max_retries} attempts")  
+        return False
+                
+    def download_all_params(self, filename = None):  
+        """Method to download parameters using traditional MAVLink messages"""   
+        
+        # Request all parameters  
+        self.connection.param_fetch_all()  
+        
+        # Collect parameter responses  
+        params = {}  
+        param_count = None  
+        received_count = 0  
+        
+        print("Downloading parameters using traditional method...")  
+        
+        while True:  
+            msg = self.connection.recv_match(type='PARAM_VALUE', blocking=True, timeout=10)  
+            if msg is None:  
+                print(f"Timeout waiting for parameters. Received {received_count} parameters.")  
+                break  
+                
+            # Handle both string and bytes param_id  
+            if isinstance(msg.param_id, bytes):  
+                param_id = msg.param_id.decode('utf-8').rstrip('\x00')  
+            else:  
+                param_id = str(msg.param_id).rstrip('\x00')  
+                
+            params[param_id] = msg.param_value  
+            received_count += 1  
+            
+            if param_count is None:  
+                param_count = msg.param_count  
+                print(f"Expecting {param_count} parameters...")  
+            
+            print(f"Received parameter {received_count}/{param_count}: {param_id} = {msg.param_value}")  
+            
+            # Check if we've received all parameters  
+            if received_count >= param_count:  
+                break  
+        
+        # Save parameters to file  
+        if filename is None:
+            now = datetime.now()  
+            datetime_string = now.strftime("%Y-%m-%d_%H-%M-%S")  
+            filename = f'Params_{datetime_string}.param'  
 
-    def get_param(self, param_name: str):
-        """Fetches a specific parameter from the drone.
+        filename + 'param' if not filename.endswith('param') else filename
 
-        Args:
-            param_name (str): The name of the parameter to fetch.
+        self._save_params_to_file(params, filename)  
+        print(f"Saved {len(params)} parameters to {filename}")
+    
+    def _save_params_to_file(self, params, filename):  
+        """Save parameters in Mission Planner compatible format"""  
+        with open(filename, 'w') as f:  
+            # Sort parameters alphabetically for consistency  
+            for param_name in sorted(params.keys()):  
+                value = params[param_name]  
+                # Mission Planner format: PARAM_NAME,value  
+                f.write(f"{param_name},{value:.6f}\n")  
 
-        Returns:
-            float: The value of the requested parameter.
-        """
-        self.connection.param_fetch_one(param_name)
-        print(f"Requesting parameter: {param_name}")
-        # Wait for the parameter response
-        msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
-        if msg and msg.param_id == param_name:
-            param_value = msg.param_value
-            print(f"Parameter {param_name}: {param_value}")
-            return param_value
 
-    def set_param(self, param_name: str, value: float):
-        """Sets a specific parameter on the drone.
-
-        Args:
-            param_name (str): The name of the parameter to set.
-            value (float): The value to set for the parameter.
-        """
-        print(f"Setting parameter {param_name} to {value}")
-        self.connection.param_set_send(param_name, value)
-        # Wait for confirmation
-        msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)
-        if msg and msg.param_id == param_name:
-            print(f"Parameter {param_name} set to: {msg.param_value}")
 
     def message_request(self, message_type: str, freq_hz: int = 10):
         """Sends a message request to the drone, allowing reception of a specific message, received at a specific rate.
@@ -522,7 +739,7 @@ class Zenmav:
         armable = False
 
         while self.connection.recv_match(type="SYS_STATUS", blocking=False, timeout=2):
-            pass
+            time.sleep(0.001)
 
         while not armable:
             sys_status = connection.recv_match(
@@ -561,7 +778,7 @@ class Zenmav:
         connection.motors_armed_wait()
         print("Motors armed!")
 
-    def takeoff(self, altitude: float = 10.0, threshold = 2, while_moving=None):
+    def takeoff(self, altitude: float = 10.0, threshold = 1, while_moving=None):
         """Makes the drone take off. Requires 'GUIDED' mode, and the drone to be armed.
 
         Args:
@@ -569,15 +786,14 @@ class Zenmav:
             altitude (int, optional): Drone altitude in m of height relative to origin. Defaults to 10.
         """
         # Takeoff
-        connection = self.connection
-        self.home = self.get_global_pos()
-        above_home = self.home.copy()
+        current_pos = self.get_global_pos()
+        above_home = current_pos.copy()
         above_home.alt += altitude
 
         print(f"Taking off to {altitude} meters...")
-        connection.mav.command_long_send(
-            connection.target_system,
-            connection.target_component,
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
             0,
             0,
@@ -646,6 +862,21 @@ class Zenmav:
 
             connection.close()
             print("Connection closed. Mission Finished")
+
+    def close_all_connections(self):  
+        """Close all connections including GCS connections"""  
+        # Stop the forwarder thread first  
+        self._stop_forwarder = True  
+        
+        if hasattr(self, 'connection') and self.connection:  
+            self.connection.close()  
+        
+        if hasattr(self, 'connections'):  
+            for conn in self.connections:  
+                try:  
+                    conn.close()  
+                except:  
+                    pass
 
     def insert_coordinates_to_csv(self, file_path: str, waypoint: wp, description = True):
         """
@@ -747,8 +978,6 @@ class Zenmav:
             pos = self.get_local_pos()
         else:
             pos = center
-
-        global_pos = self.convert_to_global(pos)
 
         e = detection_width
         radius = scan_radius
@@ -853,7 +1082,10 @@ class Zenmav:
             type="ATTITUDE", blocking=True, timeout=2
         )
         if attitude:
-            return (attitude.roll, attitude.pitch, attitude.yaw)
+            yaw = attitude.yaw*180/np.pi
+            if yaw < 0:
+                yaw += 360
+            return (attitude.roll*180/np.pi, attitude.pitch*180/np.pi, yaw )
 
     def rc_override(self, channel_values: dict):
         """
@@ -891,6 +1123,109 @@ class Zenmav:
         self.connection.mav.rc_channels_override_send(
             self.connection.target_system, self.connection.target_component, *ch
         )
+    
+    def set_home(self, timeout=2.0):  
+        """  
+        Set self.home to the actual HOME_POSITION instead of EKF origin.  
+        Returns True on success.  
+        """  
+        # Request HOME_POSITION message (ID 242)  
+        self.connection.mav.command_long_send(  
+            self.connection.target_system,   
+            self.connection.target_component,  
+            mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE,   
+            0,  
+            242,  # HOME_POSITION message ID  
+            0, 0, 0, 0, 0, 0  
+        )  
+        
+        msg = self.connection.recv_match(type="HOME_POSITION", blocking=True, timeout=timeout)  
+        if not msg:  
+            return False  
+    
+        lat = msg.latitude / 1e7  
+        lon = msg.longitude / 1e7  
+        alt = msg.altitude / 1000.0  # Convert from mm to meters  
+        self.home = wp(lat, lon, alt, frame="global")  
+        return True
+
+    
+    def orbit(self, center, radius, speed, clockwise = True, N_turns = 1, force = False, initial_position_threshold = 0.1, radius_tolerance = 1):
+        if center.frame == "global":
+            center = self.convert_to_local(center)
+        if speed**2/radius > 1.5 and not force:
+            print('WARNING : HIGH CENTREPIDAL ACCELERATION, PRONE TO ERROR')
+            print('SET force = True TO PROCEED, ABORTING')
+            return None
+        pos = self.get_local_pos()
+        posN, posE = pos.N, pos.E
+
+        dx, dy = posN - center.N, posE - center.E
+        d = (dx*dx + dy*dy) ** 0.5
+        if d == 0:
+            return center.N + radius, center.E          # arbitrary direction if you're at the center
+        k = radius / d
+        N_point, E_point = center.N + k*dx, center.E + k*dy
+        E_error, N_error = center.E - E_point,  center.N - N_point
+        hdg_init = atan2(E_error, N_error)*180/3.141592
+
+        circumference = 2*np.pi*radius
+        time_for_loop = circumference/speed
+        rate = 360/time_for_loop
+
+        if clockwise :
+            speed = -speed
+        else:
+            rate = -rate
+
+        radius_pid = PIDController(3.5, 0, 2)
+
+
+        above_target = wp(N_point, E_point, center.D, frame = "local")
+        initial_wpnav_radius = self.get_param('WPNAV_RADIUS')
+        self.set_param('WPNAV_RADIUS', initial_position_threshold*100/2)
+        self.local_target(above_target, acceptance_radius= initial_position_threshold, heading=hdg_init)
+        time.sleep(2)
+        actual_pos = self.get_local_pos()
+        actual_x, actual_y = actual_pos.N, actual_pos.E
+        E_error, N_error = center.E - actual_y,  center.N - actual_x
+        hdg = atan2(E_error, N_error)*180/3.141592
+        if hdg < 0:
+            hdg += 360
+
+        self.yaw_target(hdg)
+        error = round(self.get_attitude()[2],0) - round(hdg,0)
+        while error > 1:
+            yaw = round(self.get_attitude()[2],0)
+            error =  yaw - round(hdg,0)
+            time.sleep(0.01)
+        time.sleep(1)
+
+        
+        
+        first = True
+        start_time = time.time()
+        while time.time() - start_time < N_turns*time_for_loop:
+            if first :
+                first = False
+                self.speed_target((0,-speed,0) , yaw_rate=rate)
+                F_speed = 0
+            else:
+                actual_pos = self.get_local_pos()
+                actual_x, actual_y = actual_pos.N, actual_pos.E
+                E_error, N_error = center.E - actual_y,  center.N - actual_x
+                distance = np.linalg.norm((E_error, N_error))
+                difference = radius - distance
+                if difference > radius_tolerance:
+                    print('ORBIT TRACKING FAILED, ABORTING')
+                    break
+                F_speed = radius_pid.compute(difference, time.time() - last_time)
+
+            self.speed_target((-F_speed,speed,0) , yaw_rate=rate)
+            last_time = time.time()
+
+        self.speed_target((0,0,0), yaw_rate=0)
+        self.set_param('WPNAV_RADIUS', initial_wpnav_radius)
 
 
 class battery:
@@ -900,5 +1235,24 @@ class battery:
 
 
 
+class PIDController():
+    def __init__(self, kp, ki, kd, max_output = 3.0):  # Une norme de 3.0 m/s est le max pour vitesses xy envoyées au drone
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.max_output = max_output
+        self.prev_error = 0.0
+        self.integral = 0.0
 
+    def compute(self, error, dt):
+        if dt <= 0:
+            return 0.0
+        
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = error
+
+        # Clamp output to max value
+        return max(min(output, self.max_output), -self.max_output)
 

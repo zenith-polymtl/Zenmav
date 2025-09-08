@@ -1,0 +1,19 @@
+version = 1
+name    = "Parc Mont Royal"
+frame   = "global"                  # global | local
+margin  = 1.0
+action = "rtl"                       # meters (pre-breach buffer)
+
+[z]
+min = 10.0                          # meters AMSL/AGL (interpretation up to usage), useless as of now
+max = 120.0
+
+[[regions]]
+kind   = "include-polygon"
+latlon = [
+  [45.5065300, -73.6105825],
+  [45.5068702, -73.6105233],
+  [45.5071729, -73.6102547],
+  [45.5071622, -73.6099773],
+  [45.5064913, -73.6104343]
+]
