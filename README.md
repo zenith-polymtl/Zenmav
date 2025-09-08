@@ -6,6 +6,8 @@ Zenmav is a lightweight Python wrapper that lets you write quick and simple scri
 Developed by **Zenith Polytechnique Montréal**.
 
 **AI help for zenmav!**
+
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zenith-polymtl/Zenmav)
 
 ## Key Features
