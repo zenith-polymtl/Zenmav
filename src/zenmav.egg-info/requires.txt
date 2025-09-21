@@ -5,3 +5,4 @@ tomli
 shapely
 pyproj
 matplotlib
+pyserial
