@@ -1,14 +1,16 @@
 
 from core import Zenmav
+from zenpoint import wp
 import time
 drone = Zenmav()
 
-drone.set_mode('GUIDED')
-input('WAIT')
-drone.takeoff(10, 5)
 
-drone.local_target((10,20,-30), wait_to_reach=False)
 
-print('GOING TO POINT AND SHUTTING DOWN')
+local_point = wp(10,20,-30)
+
+drone.orbit(center = local_point, radius = 5, speed = 2)
+
+
+
 
 

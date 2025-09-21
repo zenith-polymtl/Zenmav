@@ -962,7 +962,7 @@ class Zenmav:
         altitude: float = 10.0,
         scan_radius: float = 100.0,
         safety_margin: float = 0.0,
-        center: list = None,
+        center: wp = None,
     ):
         """Allows generating points to follow in order to scan a circular area, by performing a rectilinear pattern. Also measures the time taken to complete the entire scan.
 
@@ -1008,7 +1008,7 @@ class Zenmav:
         x, y = y, x
 
         for i in range(len(x)):
-            self.global_target(wp(x[i], y[i], -altitude, frame = "local"))
+            self.global_target(wp(x[i] + pos.N, y[i] + pos.E, -altitude, frame = "local"))
 
         total_time = time.time() - start_time
         print("SCAN FINISHED")
