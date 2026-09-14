@@ -1,11 +1,11 @@
 version = 1
 name    = "Test Site A"
 frame   = "global"                  # global | local
-margin  = 5.0
-action = "rtl"                       # meters (pre-breach buffer)
+margin  = 5.0                       # meters (pre-breach buffer)
+action  = "rtl"                     # brake | rtl
 
 [z]
-min = 10.0                          # meters AMSL/AGL (interpretation up to usage), useless as of now
+min = 10.0                          # meters, validated but not enforced yet
 max = 120.0
 
 [[regions]]

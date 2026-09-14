@@ -1,8 +1,8 @@
 version = 1
 name    = "Hangar Test Box"
-frame   = "local"
-margin  = 0.0
-action  = "rtl"
+frame   = "local"                   # points are [North, East] meters from home
+margin  = 0.0                       # meters (pre-breach buffer)
+action  = "rtl"                     # brake | rtl
 
 [z]
 min = 0.0

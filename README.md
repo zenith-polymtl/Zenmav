@@ -12,27 +12,25 @@ Developed by **Zenith Polytechnique Montréal**.
 
 ## Key Features
 
-- **Simplified Pymavlink Commands with Feedback** – one-line TCP/UDP connection with heartbeat check and easy mode change
-- **Precise Navigation and commands**
-
+- **Simplified Pymavlink commands with feedback** – one-line TCP/UDP/serial connection with heartbeat check
+- **Precise navigation and commands**
   - Global GPS waypoints with user-defined accuracy
   - Local NED waypoints relative to home
-  - Real-time body-frame speed control
+  - Real-time body-frame velocity control and yaw commands
+  - Orbit around a point
   - RC override commands
-- **Autonomous Area Scans**
-
-  - Rectilinear/lawn-mower pattern
+- **Autonomous area scans**
+  - Rectilinear / lawn-mower pattern
   - Spiral pattern
-  - **Mavlink commands and utilities**
-  - Mode change
-  - Arming / disarming
-  - Takeoff
-  - RTL
-  - Reading and setting parameters
-  - **Mavlink connection relay system**
-  - UDP, TCP, and UDPCI mavlink relays for GCS applications and other scripts
-- **Live Telemetry** – local position, global GPS, heading, RC channels, battery voltage and current
-- **CSV Logging Utilities**
+- **MAVLink commands and utilities**
+  - Mode change, arming, takeoff, RTL
+  - Reading, setting and downloading parameters
+  - ArduPilot 4.6 / 4.7 parameter name compatibility
+- **MAVLink connection relay** – TCP servers relaying the drone link to GCS applications and other scripts
+- **Live telemetry** – local position, global GPS, heading, attitude, RC channels, battery voltage and current
+- **Gimbal control** – modes, pitch/yaw angles, ROI pointing
+- **Software fence** – TOML-defined keep-in polygon that triggers BRAKE or RTL on breach
+- **CSV logging utilities**
 
 ## Safety Disclaimer
 
@@ -48,14 +46,14 @@ Operate in a clear area, keep visual line-of-sight and have a manual RC transmit
 pip install zenmav
 ```
 
-SITL users only need Ardupilot sitl running on port 5762 (default shown below). It it possible to use other AP's simulation like gazebo too. Make sure you enter the right ip when initializing Zenmav()
+SITL users only need ArduPilot SITL running on port 5762 (the default connection string). It is possible to use other simulators such as Gazebo too: make sure you pass the right connection string when initializing `Zenmav()`.
 
 ---
 
 ## Quick Start
 
 Below are three concise, copy-paste-ready examples that showcase different parts of Zenmav’s API.
-Each script follows the same basic pattern—connect, arm, fly, land—while using a different feature set.
+Each script follows the same basic pattern — connect, set GUIDED, arm, take off, fly, RTL — while using a different feature set.
 
 ---
 
@@ -70,18 +68,18 @@ from zenmav.core import Zenmav
 
 def main() -> None:
     drone = Zenmav()                 # connect (default SITL TCP link)
-    drone.arm()
     drone.set_mode("GUIDED")
-    drone.takeoff(altitude=15)       # climb to 15 m AGL
+    drone.arm()
+    drone.takeoff(altitude=15)       # climb to 15 m above home
 
-    # Fly 30 m North, 20 m East, -10 m down (NED, means 10 m in alt)
+    # Fly 30 m North, 20 m East, D = -10 m (NED: Down is positive, so 10 m above home)
     print("Navigating to local waypoint …")
     drone.local_target([30, 20, -10])
 
     # Hold position 5 s
     time.sleep(5)
 
-    # Return-to-Launch (waits for landing & disarm)
+    # Return-to-Launch (waits for landing & disarm, then closes the connection)
     drone.RTL()
 
 if __name__ == "__main__":
@@ -94,23 +92,22 @@ Example 2 — Quick lawnmower of a 50 m radius area
 --------------------------------------------------
 
 ```python
-# example_spiral_scan.py
+# example_rectilinear_scan.py
 # Demonstrates rectilinear_scan()
 
 from zenmav.core import Zenmav
 
 def main() -> None:
-    drone = Zenmav(gps_thresh=3)     # enables specific waypoint-reach detection in metres, default is current value of controller + 0.5 m
-    drone.arm()
+    drone = Zenmav(gps_thresh=3)     # waypoint-reach distance in metres, default is WP_RADIUS_M (WPNAV_RADIUS before ArduPilot 4.7) + 1 m
     drone.set_mode("GUIDED")
-    drone.takeoff(altitude=25)       # climb to 25 m AGL
+    drone.arm()
+    drone.takeoff(altitude=25)       # climb to 25 m above home
 
-    print("Starting spiral scan …")
+    print("Starting rectilinear scan …")
     drone.rectilinear_scan(
-        largeur_detection=8,         # 8 m sensor footprint
-        altitude=25,                 # keep current altitude
-        rayon_scan=50,               # cover a 50 m radius
-        safety_margin=10             # add 10 m buffer
+        detection_width=8,           # 8 m sensor footprint, used as spacing between passes
+        altitude=25,                 # scan altitude above home
+        scan_radius=50,              # cover a 50 m radius around the current position
     )
 
     drone.RTL()
@@ -126,34 +123,35 @@ Example 3 — Log a GPS point to CSV and adjust cruise speed
 
 ```python
 # example_csv_and_params.py
-# Shows get_global_pos(), insert_coordinates_to_csv(), set_param()   (zenmav 0.0.5)
+# Shows get_global_pos(), insert_coordinates_to_csv(), set_param() and speed_target()
 
-import csv
+import time
 from pathlib import Path
 from zenmav.core import Zenmav
-import time
+
 CSV_FILE = Path("waypoints.csv")
 
 def main() -> None:
-    drone = Zenmav(ip="/dev/ttyACM0") # example connection to pixhawk via USB
-    drone.arm()
+    drone = Zenmav(ip="/dev/ttyACM0", baud=115200)  # example connection to a Pixhawk via USB
     drone.set_mode("GUIDED")
+    drone.arm()
     drone.takeoff(altitude=10)
 
-    # Grab current location and write it to CSV
-    lat, lon, rel_alt = drone.get_global_pos()
-    desc = "Take-off point"
-    drone.insert_coordinates_to_csv(CSV_FILE, (lat, lon), desc)
-    print(f"Saved home waypoint to {CSV_FILE}")
+    # Grab current location (a wp object) and write it to CSV
+    pos = drone.get_global_pos()
+    pos.name = "Take-off point"
+    drone.insert_coordinates_to_csv(CSV_FILE, pos)
+    print(f"Saved {pos.lat}, {pos.lon}, {pos.alt} to {CSV_FILE}")
 
-    # Slow the aircraft to 3 m/s (ArduPilot expects cm/s)
-    drone.set_param("WPNAV_SPEED", 300)
-    print("WPNAV_SPEED set to 3 m/s")
+    # Slow the aircraft to 3 m/s (WP_SPD is in m/s, it was WPNAV_SPEED in cm/s before ArduPilot 4.7)
+    drone.set_param("WP_SPD", 3.0)
+    print("WP_SPD set to 3 m/s")
 
     # Fly forward at 3 m/s for ~3 s using body-frame velocity
     for _ in range(30):
         drone.speed_target([3, 0, 0])     # 3 m/s forward, level flight
-	time.sleep(0.1)
+        time.sleep(0.1)
+    drone.speed_target([0, 0, 0])         # stop
     print("Short cruise complete")
 
     drone.RTL()
@@ -169,38 +167,49 @@ if __name__ == "__main__":
 
 ---
 
+## ArduPilot 4.6 / 4.7 compatibility
+
+Copter 4.7 renamed the waypoint navigation parameters from `WPNAV_*` to `WP_*` and converted them from centimetres to SI units (e.g. `WPNAV_RADIUS` in cm → `WP_RADIUS_M` in m, `WPNAV_SPEED` in cm/s → `WP_SPD` in m/s).
+Zenmav detects the firmware version at connection and `get_param` / `set_param` accept both spellings: the name is translated for the connected firmware and the value stays in the units of the name you used. The full mapping is in `src/zenmav/zenparams.py`.
+
+---
+
 ## Zenmav Docs
 
-Available in docs/zenmav.md
+- API reference: [docs/zenmav.md](docs/zenmav.md)
+- Software fence configuration: [docs/Boundary_TOML.md](docs/Boundary_TOML.md), with examples in [docs/fence_configs_examples](docs/fence_configs_examples)
 
 ---
 
 ## Troubleshooting
 
-| Symptom                       | Fix                                    |
-| ----------------------------- | -------------------------------------- |
-| `No heartbeat in 5 seconds` | Check connection string / firewall     |
-| `PermissionError: ttyACM0`  | `sudo usermod -aG dialout $USER`     |
-| Waypoint never “reached”    | Provide `gps_thresh` at construction |
-| Takeoff not working           | Make sure to be in Guided mode         |
+| Symptom                                           | Fix                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| Stuck on `Waiting for heartbeat...`               | Check connection string / port / firewall. `Still waiting for a vehicle heartbeat` lists the other MAVLink systems seen on the link |
+| `PermissionError: ttyACM0`                        | `sudo usermod -aG dialout $USER`                                    |
+| `RuntimeError: Could not read WP_RADIUS_M nor WPNAV_RADIUS` | Parameters can't be read: check the link, and that the vehicle runs ArduCopter |
+| Waypoint never “reached”                          | Provide a larger `gps_thresh` at construction                       |
+| Takeoff not working                               | Make sure to be in GUIDED mode and armed                            |
 
 ---
 
 ## Contributing
 
 Issues and pull requests are welcome!
-Please fork the repository, create a feature branch and open an MR when ready.
+Please fork the repository, create a feature branch and open a PR when ready.
 
 ---
 
 ## Maintainer
 
-To push new version, update pyproject.toml
+To push a new version, update the version in pyproject.toml and CHANGELOG.md, run the tests (`python -m pytest tests`, and `python3 -m pytest tests/sitl` where ArduPilot SITL is built), then build with
 
 ``python3 -m build``
 
-Upload with
+Check and upload only the new files (dist/ also holds older versions)
 
-``twine upload dist/*``
+``twine check dist/zenmav-<version>*``
+
+``twine upload dist/zenmav-<version>*``
 
 Enter API Token (Currently only accessible by maintainer Colin Rousseau)

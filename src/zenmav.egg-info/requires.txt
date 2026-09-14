@@ -6,3 +6,7 @@ shapely
 pyproj
 matplotlib
 pyserial
+
+[test]
+pytest
+pytest-timeout

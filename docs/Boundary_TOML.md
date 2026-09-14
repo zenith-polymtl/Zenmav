@@ -2,7 +2,10 @@
 
 ## Overview
 
-This file defines **software fences** for Zenmav. A fence is a set of **keep‑in polygons** with optional altitude limits and a horizontal **margin**. When enabled, Zenmav clamps or rejects setpoints that would leave the allowed area, and can trigger actions (e.g., brake/RTL).
+This file defines a **software fence** for Zenmav: a **keep-in polygon** with an optional horizontal **margin**.
+When `Zenmav(boundary_path="fence.toml")` is used, a background thread reads the drone's GPS position every 0.25 s. If the drone is outside the polygon, Zenmav runs the configured `action` once (BRAKE or RTL) and stops monitoring.
+
+This fence does **not** replace ArduPilot's own fence and is less reliable. It is meant to trigger custom behaviour during tests.
 
 - **Format:** TOML
 - **Version:** 1
@@ -10,8 +13,8 @@ This file defines **software fences** for Zenmav. A fence is a set of **keep‑i
 
 ### Frames
 
-- **global:** vertices given as `lat, lon` (degrees, WGS‑84)
-- **local:** vertices given as `x, y` in **meters**, in a local NED plane anchored at `origin`
+- **global:** vertices given as `[lat, lon]` (decimal degrees, WGS-84)
+- **local:** vertices given as `[North, East]` in **metres**, relative to the drone's home position at init
 
 ---
 
@@ -21,11 +24,11 @@ This file defines **software fences** for Zenmav. A fence is a set of **keep‑i
 version = 1
 name    = "Test Site A"
 frame   = "global"                  # global | local
-margin  = 5.0
-action = "rtl"                       # meters (pre-breach buffer)
+margin  = 5.0                       # metres (pre-breach buffer)
+action  = "rtl"                     # brake | rtl
 
 [z]
-min = 10.0                          # meters AMSL/AGL (interpretation up to usage), useless as of now
+min = 10.0                          # metres, validated but not enforced yet
 max = 120.0
 
 [[regions]]
@@ -45,7 +48,7 @@ version = 1
 name    = "Hangar Test Box"
 frame   = "local"
 margin  = 2.0
-action = "brake"
+action  = "brake"
 
 [z]
 min = 0.0
@@ -53,7 +56,7 @@ max = 30.0
 
 [[regions]]
 kind   = "include-polygon"
-points = [
+points = [                          # [North, East] metres from home
   [0.0,   0.0],
   [120.0, 0.0],
   [120.0, 60.0],
@@ -61,20 +64,25 @@ points = [
 ]
 ```
 
+More examples in `docs/fence_configs_examples/`.
+
 ---
 
-## Keys (top‑level)
+## Keys (top-level)
 
-- `version` (**int**, required): schema version. Must be `1`.
-- `name` (**string**, optional): human‑readable label.
-- `frame` (**string**, required): `"global"` or `"local"`.
-- `origin` (**array | string**, optional): for `local` frames, `"home"` or `[lat, lon, alt]`.Ignored for `global`, but allowed (future projection features).
-- `margin` (**float**, default `0.0`): horizontal pre‑breach buffer in meters.
-- `action` (**string**, default `brake`): Action to take when fence is breached, rtl and brake possible as of now
+- `version` (**int**, default `1`): schema version. Must be `1`.
+- `name` (**string**, optional): human-readable label.
+- `frame` (**string**, default `"global"`): `"global"` or `"local"`.
+- `margin` (**float**, default `0.0`): metres. The polygon is shrunk inward by this distance, so the action triggers before reaching the real border. Keep it small enough for the polygon not to disappear.
+- `action` (**string**, default `"brake"`): action on breach.
+  - `"brake"`: switches to BRAKE mode.
+  - `"rtl"`: calls `Zenmav.RTL()`, which blocks until landing and then closes the connection.
 - `[z]` (**table**, optional):
-  - `min` (**float**, optional, meters)
-  - `max` (**float**, optional, meters)
-  - If both present, must satisfy `min <= max`.
+  - `min` (**float**, optional, metres)
+  - `max` (**float**, optional, metres)
+  - If both are present, must satisfy `min <= max`. Altitude limits are **not enforced** in v1.
+
+Other keys (e.g. `origin`) are ignored in v1: local fences are always relative to home.
 
 ## Regions (array of tables)
 
@@ -82,29 +90,44 @@ Each region must be:
 
 - `kind = "include-polygon"`
 
-Provide coordinates depending on frame:
+Provide coordinates depending on `frame`; only the matching key is read:
 
 - For **global**: `latlon = [[lat, lon], ...]`
-- For **local** : `points = [[x, y], ...]` in meters
+- For **local**: `points = [[north, east], ...]` in metres
 
 ### Rules
 
 - Polygons must have **≥ 3 vertices**.
-- Do **not** repeat the first vertex at the end; polygons are implicitly closed.
-- Mixed coordinate lists (e.g., `latlon` together with `points`) are **invalid**.
+- Polygons are implicitly closed: no need to repeat the first vertex.
 - Only **inclusion polygons** are supported in v1 (exclusions/holes will come later).
+- All regions are validated, but **only the first region is used** as the fence in v1.
+
+## Using the fence
+
+```python
+from zenmav.core import Zenmav
+
+drone = Zenmav(boundary_path="docs/fence_configs_examples/parc_mont_royal.toml")
+
+print(drone.limits.check_inside(drone.get_global_pos()))  # True if inside
+drone.limits.visualize()                                  # plot fence, home and drone (matplotlib)
+drone.limits.stop_breach_monitor()                        # disable the automatic action
+```
 
 ## Units & conventions
 
-- Distances are **meters**.
-- Speeds (if used elsewhere) are **m/s**.
-- `lat, lon` are decimal degrees (WGS‑84).
-- Altitude reference (AMSL vs AGL) is up to your runtime policy; the file just stores numbers.
+- Distances are **metres**.
+- `lat, lon` are decimal degrees (WGS-84).
+- Global polygons are projected to the UTM zone of their mean point for distance computations.
 
 ## Common validation errors
 
+- `version` other than `1`
 - `frame` not in `{global, local}`
-- Missing `latlon` (global) or `points` (local) per region
+- `kind` other than `include-polygon`
+- Missing `latlon` (global) or `points` (local) list in a region
 - Fewer than 3 vertices
+- Latitude outside [-90, 90] or longitude outside [-180, 180]
+- `margin`, `z.min` or `z.max` not a number
 - `z.min > z.max`
-- Unknown `kind` value
+- No region defined

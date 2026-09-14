@@ -1,11 +1,11 @@
 version = 1
 name    = "Parc Mont Royal"
 frame   = "global"                  # global | local
-margin  = 1.0
-action = "rtl"                       # meters (pre-breach buffer)
+margin  = 1.0                       # meters (pre-breach buffer)
+action  = "rtl"                     # brake | rtl
 
 [z]
-min = 10.0                          # meters AMSL/AGL (interpretation up to usage), useless as of now
+min = 10.0                          # meters, validated but not enforced yet
 max = 120.0
 
 [[regions]]

@@ -1,5 +1,8 @@
-from pymavlink import mavutil, mavparm
-from pymavlink.mavftp import MAVFTP 
+from .zenrelay import MavRelay, SYSID_IN_USE_PREFIX, is_vehicle_heartbeat, mavutil
+from .zenlink import SharedReader, lock_sends, default_system_id, free_system_id
+from pymavlink import mavparm
+from pymavlink.mavftp import MAVFTP
+import os
 import time
 import numpy as np
 import csv
@@ -8,10 +11,10 @@ from geopy.distance import distance
 from geopy import Point
 from datetime import datetime
 import threading
-import select
 from .zenboundary import Limits
 from .zenpoint import wp
 from .zengimbal import GimbalController
+from .zenparams import LEGACY, SI, PROBE_PARAM, naming_for_version, translate
 
 
 class Zenmav:
@@ -25,15 +28,18 @@ class Zenmav:
         boundary_path=None,
     ):
         """Initializes the Zenmav class, allowing connection to a drone via MAVLink protocol."""
-        self = self
-        self.last_message_req = None
-        self._stop_forwarder = False  
         self.gps_thresh = gps_thresh  # GPS threshold in meters
+        self.relay = None
+        self._requested_rates = {}
+        self._heartbeat_stop = threading.Event()
+        self._link_closed = False
         if GCS:
-            ip = self.split_connections(ip, tcp_ports)
+            self.relay = MavRelay(self._open_link(ip, baud), tcp_ports=[14550, *tcp_ports])
 
         self.connect(ip, baud)
-        nav_thresh = self.get_param("WPNAV_RADIUS") / 100
+        self.ap_version = self.get_autopilot_version()
+        self.param_naming = self.detect_param_naming()
+        nav_thresh = self.get_param("WP_RADIUS_M")
         
         if self.gps_thresh is None:
             self.gps_thresh = nav_thresh + 1.0
@@ -64,137 +70,113 @@ class Zenmav:
         self.parms = mavparm.MAVParmDict() 
         print("Zenmav initialized")
 
-    def split_connections(self, ip: str, tcp_ports: list):
-        self.connections = []
-        self.connections.append(mavutil.mavlink_connection(ip))
-        self.connections.append(mavutil.mavlink_connection("tcpin:0.0.0.0:14550"))
-        for port in tcp_ports:
-            self.connections.append(mavutil.mavlink_connection(f"tcpin:0.0.0.0:{port}"))
-
-        forwarding_thread = threading.Thread(target=self.message_forwarder, daemon=True)
-        forwarding_thread.start()
-        ip = "tcp:127.0.0.1:14550"
-        return ip
-
-    def message_forwarder(self):  
-        while not self._stop_forwarder:  
-            # Separate UDP and TCP connections  
-            udp_connections = [  
-                conn for conn in self.connections if isinstance(conn, mavutil.mavudp)  
-            ]  
-            tcp_connections = [  
-                conn  
-                for conn in self.connections  
-                if hasattr(conn, "fd") and conn.fd is not None  
-            ]  
-
-            serial_connections = [  
-            conn for conn in self.connections   
-            if isinstance(conn, mavutil.mavserial)  
-            ] 
-
-            for conn in serial_connections:  
-                try:  
-                    msg = conn.recv_match(blocking=False)  
-                    if msg and self._should_forward_message(msg):  
-                        buf = msg.get_msgbuf()  
-                        for other in self.connections:  
-                            if other is not conn:  
-                                other.write(buf)  
-                except Exception:  
-                    continue   
-    
-            # Handle TCP connections with select  
-            if tcp_connections:  
-                fd_to_conn = {conn.fd: conn for conn in tcp_connections}  
-                ready_fds, _, _ = select.select(  
-                    fd_to_conn.keys(), [], [], 0.01  
-                )  # Short timeout  
-                for fd in ready_fds:  
-                    conn = fd_to_conn[fd]  
-                    try:  
-                        msg = conn.recv_match(blocking=False)  
-                        if msg:  
-                            # Filter out GCS HEARTBEAT messages  
-                            if self._should_forward_message(msg):  
-                                buf = msg.get_msgbuf()  
-                                for other in self.connections:  
-                                    if other is not conn:  
-                                        other.write(buf)  
-                    except (TypeError, AttributeError) as e:  
-                        # Skip corrupted messages that cause state issues  
-                        continue  
-    
-            if udp_connections:  
-                # Handle UDP connections separately  
-                for conn in udp_connections:  
-                    try:  
-                        msg = conn.recv_match(blocking=False)  
-                        if msg:  
-                            # Filter out GCS HEARTBEAT messages  
-                            if self._should_forward_message(msg):  
-                                buf = msg.get_msgbuf()  
-                                for other in self.connections:  
-                                    if other is not conn:  
-                                        other.write(buf)  
-                    except (TypeError, AttributeError) as e:  
-                        # Skip corrupted messages that cause state issues  
-                        continue  
-    
-                time.sleep(0.001)  # Small delay to prevent CPU spinning  
-    
-    def _should_forward_message(self, msg):  
-        """  
-        Determine if a message should be forwarded between connections.  
-        Filter out GCS HEARTBEAT messages to prevent vehicle type confusion.  
-        """  
-        if msg.get_type() == 'HEARTBEAT':  
-            # Don't forward HEARTBEAT messages from GCS sources  
-            if msg.type == mavutil.mavlink.MAV_TYPE_GCS:  
-                return False  
-            
-            #mavutil.mavlink.MAV_TYPE_GIMBAL,  
-            # Also filter out other non-vehicle HEARTBEAT types that could cause confusion  
-            if msg.type in (mavutil.mavlink.MAV_TYPE_ADSB,  
-                        mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER):  
-                return False  
-        return True
+    def _open_link(self, ip: str, baud=None, source_system=255):
+        """Opens a pymavlink connection. TCP and serial links reconnect by themselves."""
+        kwargs = {"source_system": source_system, "autoreconnect": True}
+        if baud is not None:
+            kwargs["baud"] = baud
+        return mavutil.mavlink_connection(ip, **kwargs)
 
     def connect(self, ip_address: str = "tcp:127.0.0.1:5762", baud: int = None):
         """Enables easy connection to the drone, and waits for heartbeat to ensure a live communication. Only call this function once it init, should NOT be run outside of init.
+
+        Only the heartbeat of an autopilot is accepted as the vehicle: heartbeats of ground stations
+        (Mission Planner, other Zenmav instances), gimbals or companion computers are ignored.
+        The MAVLink system ID of Zenmav is chosen automatically: the port number modulo 255, or a free
+        ID between 200 and 254 when another system on the link already uses it.
 
         Args:
             ip_address (str, optional): IP address for connection.
                 Sitl simulation : 'tcp:127.0.0.1:5762' .
                 Real connection : 'udp:<ip_ubuntu>:14551' (Ensure the antenna signal is properly transmitted on this port and UDP communication is allocated between windows-ubuntu).
                 Zenith Siyi connection : 'udpout:192.168.144.12:19856'
+            baud (int, optional): Baud rate of serial links.
         Returns:
             None
         """
-        try:
-            port = ip_address.rsplit(':', 1)[1]
-            source_system_id = int(port)%255
-        except:
-            print('Non IP connection string')
-            source_system_id = np.random.randint(1,254)
-            #Ports commonly used 14550-14555, 5760-5763
-            reserved_id_for_common_ports = [170,171,172,173,174,175,150,151,152,153]
-            while source_system_id not in reserved_id_for_common_ports:
-                source_system_id = np.random.randint(1,254)
-
-        print(f"System ID : {source_system_id}")
-        # Create the self.connection
-        # Establish connection to MAVLink
-        if baud is not None:
-            self.connection = mavutil.mavlink_connection(ip_address, baud=baud, source_system=source_system_id)
+        if self.relay is not None:
+            preferred = 14550 % 255  # System ID of previous versions in GCS mode
         else:
-            self.connection = mavutil.mavlink_connection(ip_address, source_system=source_system_id)
+            preferred = default_system_id(ip_address)
+        provisional = free_system_id(set(), preferred=preferred, salt=os.getpid())
+
+        if self.relay is not None:
+            self.connection = self.relay.add_internal_link(provisional)
+        else:
+            self.connection = self._open_link(ip_address, baud, provisional)
+        connection = self.connection
+        lock_sends(connection)
+
+        vehicle, others = self._wait_for_vehicle()
+        connection.target_system, connection.target_component = vehicle
+        system_id = free_system_id(others | {vehicle[0]}, preferred=provisional, salt=os.getpid())
+        if system_id != provisional:
+            print(f"System ID {provisional} is already used on this link")
+        connection.mav.srcSystem = connection.source_system = system_id
+        print(f"System ID : {system_id}")
+
+        self._reader = SharedReader(connection)
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, name="zenmav-heartbeat", daemon=True)
+        self._heartbeat_thread.start()
+
+    def _wait_for_vehicle(self, warning_period: float = 5.0, observation_window: float = 1.5):
+        """Waits for an autopilot heartbeat, while noting the system IDs already present on the link.
+
+        Returns:
+            tuple: ((sysid, compid) of the vehicle, set of the other system IDs seen)
+        """
+        connection = self.connection
         print("Waiting for heartbeat...")
+        start = last_heartbeat = last_warning = time.monotonic()
+        self._send_heartbeat()
+        vehicle = None
+        others = set()
+        while True:
+            msg = connection.recv_match(blocking=True, timeout=0.2)
+            now = time.monotonic()
+            if now - last_heartbeat >= 1.0:
+                self._send_heartbeat()
+                last_heartbeat = now
+            if msg is not None and msg.get_type() != "BAD_DATA":
+                text = str(getattr(msg, "text", ""))
+                if vehicle is None and is_vehicle_heartbeat(msg):
+                    vehicle = (msg.get_srcSystem(), msg.get_srcComponent())
+                    print("Heartbeat received!")
+                elif msg.get_type() == "STATUSTEXT" and text.startswith(SYSID_IN_USE_PREFIX):
+                    others.add(int(text[len(SYSID_IN_USE_PREFIX):]))  # Sent by a Zenmav relay
+                elif msg.get_srcSystem() != 0:
+                    others.add(msg.get_srcSystem())
+            if vehicle is not None and now - start >= observation_window:
+                others.discard(vehicle[0])
+                return vehicle, others
+            if vehicle is None and now - last_warning >= warning_period:
+                last_warning = now
+                seen = f" Other MAVLink systems seen: {sorted(others)}." if others else ""
+                print(f"Still waiting for a vehicle heartbeat...{seen}")
+
+    def _send_heartbeat(self):
         self.connection.mav.heartbeat_send(
-            mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0
+            mavutil.mavlink.MAV_TYPE_GCS, mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, mavutil.mavlink.MAV_STATE_ACTIVE
         )
-        self.connection.wait_heartbeat()
-        print("Heartbeat received!")
+
+    def _heartbeat_loop(self):
+        """Sends a GCS heartbeat every second, so other MAVLink systems know this Zenmav instance."""
+        while not self._heartbeat_stop.wait(1.0):
+            try:
+                self._send_heartbeat()
+            except Exception:
+                pass
+
+    def _wait_vehicle_heartbeat(self, timeout: float = 1.0):
+        """Returns the next heartbeat of the vehicle, or None after timeout seconds."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            msg = self.connection.recv_match(type="HEARTBEAT", blocking=True, timeout=remaining)
+            if msg is not None and msg.get_srcSystem() == self.connection.target_system and is_vehicle_heartbeat(msg):
+                return msg
 
     def global_target(self, waypoint: wp, while_moving=None, wait_to_reach: bool = True, heading = None):
         """Sends a movement command to the drone for a specific global GPS coordinate.
@@ -478,6 +460,26 @@ class Zenmav:
             #print(error)
             return error < threshold
 
+    def _next_message(self, msg_type: str, msg_id: int, freq_hz: float, warning_after: float = 2.0):
+        """Requests msg_type at freq_hz, discards the copies already received and waits for the next one.
+
+        Waits as long as needed, printing a warning and requesting the message again every
+        warning_after seconds without data (link lost, vehicle rebooted...).
+        """
+        self.message_request(msg_id, freq_hz)
+        connection = self.connection
+        while connection.recv_match(type=msg_type, blocking=False):
+            pass  # Discard old messages
+        while True:
+            msg = connection.recv_match(type=msg_type, blocking=True, timeout=warning_after)
+            if msg is not None:
+                return msg
+            if self._reader.closed:
+                raise ConnectionError("MAVLink connection is closed")
+            print(f"WARNING : no {msg_type} received for {warning_after:.0f} s, requesting it again")
+            self._requested_rates.pop(msg_id, None)
+            self.message_request(msg_id, freq_hz)
+
     def get_local_pos(self, frequency_hz: int = 60):
         """Allows to get the local position, and makes a request to get the data at the desired frequency.
 
@@ -488,23 +490,10 @@ class Zenmav:
         Returns:
             Position (wp): Position in local NED coordinate system : [N, E, -Z])
         """
-
-        self.message_request(
-            message_type=mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED,
-            freq_hz=frequency_hz,
+        msg = self._next_message(
+            "LOCAL_POSITION_NED", mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, frequency_hz
         )
-
-        while self.connection.recv_match(
-            type="LOCAL_POSITION_NED", blocking=False, timeout=1
-        ):
-            pass  # Discard old messages
-
-        # Loop to receive the most recent message
-        while True:
-            msg = self.connection.recv_match(type="LOCAL_POSITION_NED", blocking=True)
-            if msg and msg.get_type() == "LOCAL_POSITION_NED":
-                # print(f"Position: X = {msg.x} m, Y = {msg.y} m, Z = {msg.z} m")
-                return wp(msg.x, msg.y, msg.z, frame = "local")
+        return wp(msg.x, msg.y, msg.z, frame="local")
 
 
     def get_global_pos(self, time_tag: bool = False, heading: bool = False):
@@ -518,37 +507,19 @@ class Zenmav:
             tuple : [timestamp, latitude, longitude, altitude, heading]
             timestamp and heading are optional, depending on the parameters.
         """
-        connection = self.connection
-        self.message_request(
-            message_type=mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, freq_hz=60
+        msg = self._next_message(
+            "GLOBAL_POSITION_INT", mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 60
         )
+        lat = msg.lat / 1e7  # Convert from int32 to degrees
+        lon = msg.lon / 1e7  # Convert from int32 to degrees
+        alt = msg.relative_alt / 1000.0  # Convert from mm to meters (relative altitude)
 
-        while connection.recv_match(
-            type="GLOBAL_POSITION_INT", blocking=False, timeout=1
-        ):
-            pass  # Discard old messages
-
-        # Fetch the current global position
-        while True:
-            msg = connection.recv_match(blocking=True)
-            if msg.get_type() == "GLOBAL_POSITION_INT":
-
-                # Extract latitude, longitude, and relative altitude
-                lat = msg.lat / 1e7  # Convert from int32 to degrees
-                lon = msg.lon / 1e7  # Convert from int32 to degrees
-                alt = (
-                    msg.relative_alt / 1000.0
-                )  # Convert from mm to meters (relative altitude)
-                hdg = msg.hdg / 100
-
-                # print(f"Position: Lat = {lat}°, Lon = {lon}°, Alt = {alt} meters, hdg = {hdg}")
-                pos = wp(lat, lon, alt, frame = "global")
-                if heading:
-                    pos.hdg = hdg
-                if time_tag:
-                    pos.timestamp
-
-                return pos
+        pos = wp(lat, lon, alt, frame = "global")
+        if heading:
+            pos.hdg = msg.hdg / 100
+        if time_tag:
+            pos.timestamp = msg.time_boot_ms / 1000.0  # Seconds since autopilot boot
+        return pos
 
     def get_rc_value(self, channel: int):
         """
@@ -561,42 +532,57 @@ class Zenmav:
         Returns:
             int: Raw RC channel value (1000 - 2000).
         """
-
-        self.message_request(mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, freq_hz=60)
-
-        while self.connection.recv_match(type="RC_CHANNELS", blocking=False):
-            pass  # Discard old messages
-
-        while True:
-            msg = self.connection.recv_match(type="RC_CHANNELS", blocking=True)
-            if msg and msg.get_type() == "RC_CHANNELS":
-                # Channel values are indexed from 1 to 18
-                if 1 <= channel <= 18:
-                    value = getattr(msg, f"chan{channel}_raw", None)
-                    if value is not None:
-                        # print(f"RC Channel {channel} Value: {value}")
-                        return value
-                    else:
-                        print(f"Channel {channel} not available in the message.")
-                        return None
+        msg = self._next_message("RC_CHANNELS", mavutil.mavlink.MAVLINK_MSG_ID_RC_CHANNELS, 60)
+        # Channel values are indexed from 1 to 18
+        value = getattr(msg, f"chan{channel}_raw", None) if 1 <= channel <= 18 else None
+        if value is None:
+            print(f"Channel {channel} not available in the message.")
+        return value
                     
-    def get_param(self, param_name: str, max_retries=10):  
-        """Fetches a specific parameter from the drone."""  
-        for i in range(max_retries):  
-            self.connection.param_fetch_one(param_name)  
-            print(f"Requesting parameter: {param_name}")  
-            
-            msg = self.connection.recv_match(type="PARAM_VALUE", blocking=True, timeout=3)  
-            if msg and msg.param_id == param_name:  
-                param_value = msg.param_value  
-                print(f"Parameter {param_name}: {param_value}")  
-                if param_value is not None:  
-                    return param_value  
-        return None  
-  
-    def set_param(self, param_name: str, value: float, max_retries=5, parm_type=None):  
-        """Sets a specific parameter on the drone using MAVParmDict."""  
-        for i in range(max_retries):  
+    def get_param(self, param_name: str, max_retries=10, timeout=3):
+        """Fetches a specific parameter from the drone.
+
+        ArduPilot 4.6 (WPNAV_*) and 4.7 (WP_*) names are both accepted and translated to the
+        connected firmware's naming. The value is returned in the units of the requested name
+        (e.g. WPNAV_SPEED in cm/s, WP_SPD in m/s). See zenparams.py.
+        """
+        fw_name, factor = translate(param_name, self.param_naming)
+        if fw_name != param_name:
+            print(f"Parameter {param_name} is named {fw_name} on this firmware")
+        value = self._fetch_param(fw_name, max_retries, timeout)
+        if value is None:
+            return None
+        return value / factor
+
+    def _fetch_param(self, param_name: str, max_retries=10, timeout=3):
+        """Fetches a parameter by its exact firmware name. Returns None if it can't be read."""
+        for i in range(max_retries):
+            self._reader.flush()  # Old PARAM_VALUE copies are not the answer to this request
+            self.connection.param_fetch_one(param_name)
+            print(f"Requesting parameter: {param_name}")
+
+            msg = self.connection.recv_match(type=["PARAM_VALUE", "PARAM_ERROR"], blocking=True, timeout=timeout)
+            if msg and msg.param_id == param_name:
+                if msg.get_type() == "PARAM_ERROR":  # Sent by recent firmwares when the parameter does not exist
+                    print(f"Parameter {param_name} does not exist on this firmware")
+                    return None
+                param_value = msg.param_value
+                print(f"Parameter {param_name}: {param_value}")
+                if param_value is not None:
+                    return param_value
+        return None
+
+    def set_param(self, param_name: str, value: float, max_retries=5, parm_type=None):
+        """Sets a specific parameter on the drone using MAVParmDict.
+
+        ArduPilot 4.6 (WPNAV_*) and 4.7 (WP_*) names are both accepted, with value in the units
+        of the requested name (e.g. set_param("WPNAV_SPEED", 300) writes WP_SPD = 3.0 on 4.7).
+        """
+        fw_name, factor = translate(param_name, self.param_naming)
+        if fw_name != param_name:
+            print(f"Parameter {param_name} is named {fw_name} on this firmware")
+        param_name, value = fw_name, value * factor
+        for i in range(max_retries):
             print(f"Setting parameter {param_name} to {value} (attempt {i + 1})")  
                 
             # Use MAVParmDict.mavset() instead of basic param_set_send  
@@ -605,7 +591,7 @@ class Zenmav:
                 
             if success:  
                 # Verify the parameter was set correctly  
-                new_value = self.get_param(param_name, max_retries=3)  
+                new_value = self._fetch_param(param_name, max_retries=3)
                 if new_value is not None and round(new_value, 5) == round(value, 5):  
                     print(f"Parameter {param_name} set to: {new_value}")  
                     return True  
@@ -616,13 +602,51 @@ class Zenmav:
                 print(f"Failed to set {param_name} on attempt {i + 1}")  
                 time.sleep(0.02)  
             
-        print(f"Failed to set parameter {param_name} after {max_retries} attempts")  
+        print(f"Failed to set parameter {param_name} after {max_retries} attempts")
         return False
+
+    def get_autopilot_version(self, timeout=2.0):
+        """Requests AUTOPILOT_VERSION and returns the firmware version as (major, minor, patch), or None."""
+        self._reader.flush()
+        self.connection.mav.command_long_send(
+            self.connection.target_system,
+            self.connection.target_component,
+            mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE,
+            0,
+            mavutil.mavlink.MAVLINK_MSG_ID_AUTOPILOT_VERSION,
+            0, 0, 0, 0, 0, 0
+        )
+        msg = self.connection.recv_match(type="AUTOPILOT_VERSION", blocking=True, timeout=timeout)
+        if not msg:
+            print("Could not read autopilot firmware version")
+            return None
+
+        v = msg.flight_sw_version
+        version = ((v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF)
+        print(f"Autopilot firmware version : {version[0]}.{version[1]}.{version[2]}")
+        return version
+
+    def detect_param_naming(self):
+        """Detects if the firmware uses 4.6 (WPNAV_*, cm) or 4.7 (WP_*, SI units) parameter names.
+
+        The firmware version only decides which name is probed first, since dev builds
+        labelled 4.7 may predate the rename.
+        """
+        expected = naming_for_version(self.ap_version) or SI
+        other = LEGACY if expected == SI else SI
+        for naming in (expected, other):
+            if self._fetch_param(PROBE_PARAM[naming], max_retries=2, timeout=1) is not None:
+                print(f"Using ArduPilot {'4.7+ (WP_*)' if naming == SI else '4.6 (WPNAV_*)'} parameter names")
+                return naming
+        raise RuntimeError(
+            f"Could not read {PROBE_PARAM[SI]} nor {PROBE_PARAM[LEGACY]}. Is this an ArduCopter firmware?"
+        )
                 
     def download_all_params(self, filename = None):  
         """Method to download parameters using traditional MAVLink messages"""   
         
         # Request all parameters  
+        self._reader.flush()
         self.connection.param_fetch_all()  
         
         # Collect parameter responses  
@@ -679,31 +703,47 @@ class Zenmav:
 
 
 
-    def message_request(self, message_type: str, freq_hz: int = 10):
+    def message_request(self, message_type: int, freq_hz: float = 10):
         """Sends a message request to the drone, allowing reception of a specific message, received at a specific rate.
 
+        The request is only sent when the rate of this message changes. Rates stay active on the
+        vehicle after the script ends, see restore_message_rates().
+
         Args:
-            connection (mavlink connection): Connection to the drone, often called master or connection
             message_type (id function message): See mavlink message types that can be requested in copter mode
             freq_hz (int, optional): Desired data transmission frequency. Defaults to 10 Hz.
         """
-        if message_type != self.last_message_req:
-            interval_us = int(1e6 / freq_hz)  # Interval in microseconds
-            # Send the command to set the message interval
+        if self._requested_rates.get(message_type) == freq_hz:
+            return
+        interval_us = int(1e6 / freq_hz)  # Interval in microseconds
+        self.connection.mav.command_long_send(
+            self.connection.target_system,  # Target system ID
+            self.connection.target_component,  # Target component ID
+            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,  # Command to set message interval
+            0,  # Confirmation
+            message_type,  # Message ID
+            interval_us,  # Interval in microseconds
+            0,
+            0,
+            0,
+            0,
+            0,  # Unused parameters
+        )
+        self._requested_rates[message_type] = freq_hz
+
+    def restore_message_rates(self):
+        """Puts back the default rate of every message requested by this Zenmav instance."""
+        for message_type in list(self._requested_rates):
             self.connection.mav.command_long_send(
-                self.connection.target_system,  # Target system ID
-                self.connection.target_component,  # Target component ID
-                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,  # Command to set message interval
-                0,  # Confirmation
-                message_type,  # Message ID for GLOBAL_POSITION_INT
-                interval_us,  # Interval in microseconds
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
                 0,
-                0,
-                0,
-                0,
-                0,  # Unused parameters
+                message_type,
+                0,  # 0 : default rate
+                0, 0, 0, 0, 0,
             )
-            self.last_message_req = message_type
+        self._requested_rates.clear()
 
     def set_mode(self, mode: str, max_retries = 3):
         """Allows easy mode selection from its string
@@ -713,20 +753,23 @@ class Zenmav:
             mode (str): Mode identification by letters
         """
         connection = self.connection
-        mode_id = connection.mode_mapping()[mode]  # Conversion of mode to its id
+        mode_map = connection.mode_mapping()
+        if mode_map is None:
+            raise RuntimeError("Vehicle type unknown : no heartbeat received from the autopilot")
+        mode_id = mode_map[mode]  # Conversion of mode to its id
 
-   
         for i in range(max_retries):
+            self._reader.flush()  # Only a heartbeat sent after the request can confirm the mode
             connection.mav.set_mode_send(
                 connection.target_system,
                 mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
                 mode_id,
             )
- 
-            heartbeat = connection.recv_match(type='HEARTBEAT', blocking=True, timeout=1.0)  
-            if heartbeat and connection.flightmode.upper() == mode.upper():  
+
+            heartbeat = self._wait_vehicle_heartbeat(timeout=1.0)
+            if heartbeat and connection.flightmode.upper() == mode.upper():
                 print(f"Mode successfully changed to {mode}")
-                break  
+                break
             else:
                 print(f'FAILED TO CHANGE MODE TO {mode}')
             
@@ -860,23 +903,29 @@ class Zenmav:
             connection.motors_disarmed_wait()
             print("Landed and motors disarmed!")
 
-            connection.close()
+            self._close_link()
             print("Connection closed. Mission Finished")
 
-    def close_all_connections(self):  
-        """Close all connections including GCS connections"""  
-        # Stop the forwarder thread first  
-        self._stop_forwarder = True  
-        
-        if hasattr(self, 'connection') and self.connection:  
-            self.connection.close()  
-        
-        if hasattr(self, 'connections'):  
-            for conn in self.connections:  
-                try:  
-                    conn.close()  
-                except:  
-                    pass
+    def close_all_connections(self):
+        """Closes the drone link and, in GCS mode, stops the relay and its TCP servers."""
+        self._close_link()
+        if self.relay is not None:
+            self.relay.close()
+            self.relay = None
+
+    def _close_link(self):
+        """Stops the fence monitor, restores message rates, stops the heartbeat and closes the connection."""
+        if self._link_closed:
+            return
+        self._link_closed = True
+        if hasattr(self, "limits"):
+            self.limits.stop_breach_monitor(timeout=1.0)
+        try:
+            self.restore_message_rates()
+        except Exception:
+            pass
+        self._heartbeat_stop.set()
+        self.connection.close()
 
     def insert_coordinates_to_csv(self, file_path: str, waypoint: wp, description = True):
         """
@@ -1129,6 +1178,7 @@ class Zenmav:
         Set self.home to the actual HOME_POSITION instead of EKF origin.  
         Returns True on success.  
         """  
+        self._reader.flush()
         # Request HOME_POSITION message (ID 242)  
         self.connection.mav.command_long_send(  
             self.connection.target_system,   
@@ -1182,8 +1232,8 @@ class Zenmav:
 
 
         above_target = wp(N_point, E_point, center.D, frame = "local")
-        initial_wpnav_radius = self.get_param('WPNAV_RADIUS')
-        self.set_param('WPNAV_RADIUS', initial_position_threshold*100/2)
+        initial_wp_radius = self.get_param('WP_RADIUS_M')
+        self.set_param('WP_RADIUS_M', initial_position_threshold/2)
         self.local_target(above_target, acceptance_radius= initial_position_threshold, heading=hdg_init)
         time.sleep(2)
         actual_pos = self.get_local_pos()
@@ -1225,7 +1275,7 @@ class Zenmav:
             last_time = time.time()
 
         self.speed_target((0,0,0), yaw_rate=0)
-        self.set_param('WPNAV_RADIUS', initial_wpnav_radius)
+        self.set_param('WP_RADIUS_M', initial_wp_radius)
 
 
 class battery:
